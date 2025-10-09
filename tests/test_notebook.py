@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -67,6 +68,15 @@ def build_notebook(
     )
     root.update_idletasks()
     return widget
+
+
+def wait_for_jobs(root, notebook, timeout=2.0):
+    deadline = time.time() + timeout
+    while notebook.has_running_job():
+        root.update()
+        if time.time() > deadline:
+            raise RuntimeError("Timeout esperando a que finalicen los trabajos en segundo plano")
+    root.update()
 
 
 def test_new_tab_creates_initial_configuration(root, prompts):
@@ -236,7 +246,7 @@ def test_preview_without_input_shows_error(root, prompts):
     tab_id = notebook.notebook.select()
 
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     assert prompts.errors
     console = notebook._console_widgets[tab_id]
@@ -279,7 +289,7 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
     config.input_pdf = tmp_path / "book.pdf"
 
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     console = notebook._console_widgets[tab_id]
     text = console.get("1.0", tk.END)
@@ -330,11 +340,11 @@ def test_preview_replaces_previous_workspace(tmp_path, root, prompts):
     config.input_pdf = tmp_path / "doc.pdf"
 
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
     assert cleanup_calls == []
 
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
     assert cleanup_calls == ["ws1"]
     assert notebook._preview_state[tab_id].workspace.path == tmp_path / "ws2"
 
@@ -356,7 +366,7 @@ def test_preview_failure_shows_console(tmp_path, root, prompts):
     config.input_pdf = tmp_path / "doc.pdf"
 
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     assert prompts.errors
     console = notebook._console_widgets[tab_id]
@@ -388,7 +398,7 @@ def test_generate_epub_updates_config_and_console(tmp_path, root, prompts):
     notebook._ask_output_epub = lambda _: str(target)
 
     notebook.generate_epub()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     assert config.output_epub == target
     summary = notebook._summary_labels[tab_id].cget("text")
@@ -422,7 +432,7 @@ def test_generate_epub_reports_errors(tmp_path, root, prompts):
     notebook._ask_output_epub = lambda _: str(tmp_path / "salida.epub")
 
     notebook.generate_epub()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     assert prompts.errors
     console = notebook._console_widgets[tab_id]
@@ -482,7 +492,7 @@ def test_reload_preview_updates_viewer(tmp_path, root, prompts):
     config.input_pdf.write_text("pdf", encoding="utf-8")
 
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     viewer = notebook._viewer_widgets[tab_id]
     html_path = viewer.last_path
@@ -533,12 +543,13 @@ def test_export_oeb_writes_directory(tmp_path, root, prompts):
     config.input_pdf.write_text("pdf", encoding="utf-8")
 
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     export_dir = tmp_path / "exported-oeb"
     notebook._ask_oeb_directory = lambda _: str(export_dir)
 
     notebook.export_oeb()
+    wait_for_jobs(root, notebook)
     root.update_idletasks()
 
     assert (export_dir / "index.xhtml").exists()
@@ -578,6 +589,7 @@ def test_export_oeb_runs_preview_when_missing(tmp_path, root, prompts):
     notebook._ask_oeb_directory = lambda _: str(export_dir)
 
     notebook.export_oeb()
+    wait_for_jobs(root, notebook)
     root.update_idletasks()
 
     assert calls == ["preview"]
@@ -607,7 +619,7 @@ def test_export_oeb_requires_empty_directory(tmp_path, root, prompts):
     config.input_pdf = tmp_path / "doc.pdf"
     config.input_pdf.write_text("pdf", encoding="utf-8")
     notebook.preview_current_tab()
-    root.update_idletasks()
+    wait_for_jobs(root, notebook)
 
     export_dir = tmp_path / "dest"
     export_dir.mkdir()

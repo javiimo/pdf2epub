@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import copy
+import os
+import queue
 import shlex
 import shutil
-import os
+import subprocess
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 from uuid import uuid4
 
 import tkinter as tk
@@ -75,10 +78,9 @@ class ConfigNotebook(ttk.Frame):
         self._console_widgets: Dict[str, tk.Text] = {}
         self._status_labels: Dict[str, ttk.Label] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
-        self._preview_runner = preview_runner or (lambda config: run_preview(config, catalog=self.catalog))
-        self._conversion_runner = conversion_runner or (
-            lambda config, target: run_epub(config, target=target, catalog=self.catalog)
-        )
+        self._running_jobs: Dict[str, dict] = {}
+        self._preview_runner = preview_runner
+        self._conversion_runner = conversion_runner
         self._presets = list(presets) if presets is not None else get_presets()
         self._preset_selector = preset_selector or (lambda items: choose_preset(self, items))
         self._input_controls: Dict[str, Dict[str, Any]] = {}
@@ -89,12 +91,207 @@ class ConfigNotebook(ttk.Frame):
 
     # -- Public API -----------------------------------------------------
 
+    def _bind_mousewheel(self, canvas: tk.Canvas, target: tk.Widget) -> None:
+        """Enable mouse wheel scrolling on the provided canvas."""
+
+        def _on_mousewheel(event: tk.Event) -> str:
+            delta = event.delta
+            if delta == 0:
+                if getattr(event, "num", None) == 4:
+                    delta = 120
+                elif getattr(event, "num", None) == 5:
+                    delta = -120
+            if delta:
+                canvas.yview_scroll(int(-delta / 120), "units")
+            return "break"
+
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            canvas.bind(sequence, _on_mousewheel, add=True)
+            target.bind(sequence, _on_mousewheel, add=True)
+
+    def _start_background_job(
+        self,
+        tab_id: str,
+        *,
+        job_name: str,
+        runner: Callable[[Callable[[str, Any], None]], Any],
+        on_success: Callable[[Any], None],
+        on_error: Callable[[Exception], None],
+    ) -> bool:
+        if tab_id in self._running_jobs:
+            self._error_handler("Ya hay una tarea en ejecución en esta pestaña. Espera a que finalice.")
+            return False
+
+        task_queue: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+
+        def send(kind: str, payload: Any) -> None:
+            task_queue.put((kind, payload))
+
+        def worker() -> None:
+            try:
+                result = runner(send)
+            except Exception as exc:  # pragma: no cover - handled in UI thread
+                task_queue.put(("__error__", exc))
+            else:
+                task_queue.put(("__result__", result))
+
+        state = {
+            "queue": task_queue,
+            "thread": threading.Thread(target=worker, name=f"{job_name}-{tab_id}", daemon=True),
+            "on_success": on_success,
+            "on_error": on_error,
+            "job_name": job_name,
+        }
+        self._running_jobs[tab_id] = state
+        state["thread"].start()
+        self.after(25, lambda: self._poll_job_queue(tab_id))
+        return True
+
+    def _poll_job_queue(self, tab_id: str) -> None:
+        state = self._running_jobs.get(tab_id)
+        if not state:
+            return
+
+        task_queue: queue.Queue = state["queue"]
+        should_reschedule = True
+
+        while True:
+            try:
+                kind, payload = task_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if kind == "__result__":
+                self._running_jobs.pop(tab_id, None)
+                try:
+                    state["on_success"](payload)
+                finally:
+                    should_reschedule = False
+            elif kind == "__error__":
+                self._running_jobs.pop(tab_id, None)
+                try:
+                    state["on_error"](payload)
+                finally:
+                    should_reschedule = False
+            elif kind == "stream":
+                stream_kind, text = payload
+                snippet = str(text).rstrip("\n")
+                if snippet:
+                    prefix = "[stdout]" if stream_kind == "stdout" else "[stderr]"
+                    self._append_console(tab_id, f"{prefix} {snippet}")
+            elif kind == "message":
+                self._append_console(tab_id, str(payload))
+            elif kind == "status":
+                self._update_status(tab_id, str(payload))
+
+        if should_reschedule and tab_id in self._running_jobs:
+            self.after(50, lambda: self._poll_job_queue(tab_id))
+
+    def _make_streaming_run(
+        self,
+        tab_id: str,
+        send: Callable[[str, Any], None],
+    ) -> Callable[..., subprocess.CompletedProcess]:
+        def _runner(
+            command: Sequence[str],
+            *,
+            capture_output: bool = True,
+            text: bool = True,
+            check: bool = False,
+            **kwargs: Any,
+        ) -> subprocess.CompletedProcess:
+            return self._stream_subprocess(
+                tab_id,
+                send,
+                command,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                **kwargs,
+            )
+
+        return _runner
+
+    def _stream_subprocess(
+        self,
+        tab_id: str,
+        send: Callable[[str, Any], None],
+        command: Sequence[str],
+        *,
+        capture_output: bool,
+        text: bool,
+        check: bool,
+        **kwargs: Any,
+    ) -> subprocess.CompletedProcess:
+        if not capture_output:
+            return subprocess.run(
+                command,
+                capture_output=capture_output,
+                text=text,
+                check=check,
+                **kwargs,
+            )
+
+        if "stdout" in kwargs or "stderr" in kwargs:
+            raise ValueError("streaming runner no soporta redirecciones personalizadas de stdout/stderr")
+
+        popen_kwargs = dict(kwargs)
+        popen_kwargs.setdefault("bufsize", 1 if text else 0)
+        popen_kwargs.setdefault("text", text)
+        popen_kwargs.setdefault("universal_newlines", text)
+        popen_kwargs["stdout"] = subprocess.PIPE
+        popen_kwargs["stderr"] = subprocess.PIPE
+
+        process = subprocess.Popen(command, **popen_kwargs)
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+
+        def _pump(stream: Optional[Any], kind: str, accumulator: list[str]) -> None:
+            if stream is None:
+                return
+            for line in iter(stream.readline, ""):
+                accumulator.append(line)
+                send("stream", (kind, line))
+            stream.close()
+
+        stdout_thread = threading.Thread(
+            target=_pump,
+            args=(process.stdout, "stdout", stdout_chunks),
+            name=f"{tab_id}-stdout",
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=_pump,
+            args=(process.stderr, "stderr", stderr_chunks),
+            name=f"{tab_id}-stderr",
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        returncode = process.wait()
+        stdout_thread.join()
+        stderr_thread.join()
+
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
+        completed = subprocess.CompletedProcess(list(command), returncode, stdout, stderr)
+        if check and returncode != 0:
+            raise subprocess.CalledProcessError(returncode, list(command), stdout, stderr)
+        return completed
+
     def new_tab(self) -> Optional[str]:
         """Create a brand new configuration tab."""
         tab_id = self._generate_tab_id()
         title = self._generate_title()
         config = TabConfiguration(tab_id=tab_id, title=title)
         return self._add_tab(config)
+
+    def has_running_job(self, tab_id: Optional[str] = None) -> bool:
+        """Return True when there is an active background job."""
+        if tab_id is not None:
+            return tab_id in self._running_jobs
+        return bool(self._running_jobs)
 
     def clone_current_tab(self) -> Optional[str]:
         tab_id = self._current_tab_id()
@@ -277,13 +474,40 @@ class ConfigNotebook(ttk.Frame):
         self._create_input_controls(widget, config, tab_widget_id)
         self._create_side_panel(widget, tab_widget_id)
 
+        form_container = ttk.Frame(widget)
+        form_container.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 12))
+        form_container.columnconfigure(0, weight=1)
+        form_container.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(form_container, highlightthickness=0, borderwidth=0)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        canvas.configure(yscrollincrement=20)
+
+        scrollbar = ttk.Scrollbar(form_container, orient="vertical", command=canvas.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        inner = ttk.Frame(canvas)
+        inner.columnconfigure(0, weight=1)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(event: tk.Event) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event: tk.Event) -> None:
+            canvas.itemconfigure(window_id, width=event.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        self._bind_mousewheel(canvas, inner)
+
         form = ConfigForm(
-            widget,
+            inner,
             catalog=self.catalog,
             config=config,
             on_change=lambda option_id: self._handle_form_change(tab_widget_id, option_id),
         )
-        form.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 12))
+        form.grid(row=0, column=0, sticky="nsew")
 
         status = ttk.Label(widget, text="Listo", anchor="w", padding=(12, 6))
         status.grid(row=3, column=0, columnspan=2, sticky="ew")
@@ -455,7 +679,7 @@ class ConfigNotebook(ttk.Frame):
             return f"{label}: <vacío>"
         return f"{label}:\n{stripped}"
 
-    def _format_preview_success(self, result: PreviewResult) -> str:
+    def _format_preview_success(self, result: PreviewResult, *, include_streams: bool = True) -> str:
         pieces = [
             "[OK] Previsualización completada.",
             f"Comando: {self._format_command(result.command)}",
@@ -465,12 +689,13 @@ class ConfigNotebook(ttk.Frame):
         if result.skipped_options:
             skipped = ", ".join(sorted(result.skipped_options))
             pieces.append(f"Opciones omitidas (no soportadas por ebook-convert): {skipped}")
-        pieces.extend(
-            [
-                self._render_stream("stdout", result.stdout),
-                self._render_stream("stderr", result.stderr),
-            ]
-        )
+        if include_streams:
+            pieces.extend(
+                [
+                    self._render_stream("stdout", result.stdout),
+                    self._render_stream("stderr", result.stderr),
+                ]
+            )
         return "\n\n".join(pieces)
 
     def _format_run_error(self, error: Any) -> str:
@@ -483,7 +708,7 @@ class ConfigNotebook(ttk.Frame):
         ]
         return "\n\n".join(pieces)
 
-    def _format_conversion_success(self, result: ConversionResult) -> str:
+    def _format_conversion_success(self, result: ConversionResult, *, include_streams: bool = True) -> str:
         pieces = [
             "[OK] EPUB generado.",
             f"Comando: {self._format_command(result.command)}",
@@ -492,12 +717,13 @@ class ConfigNotebook(ttk.Frame):
         if result.skipped_options:
             skipped = ", ".join(sorted(result.skipped_options))
             pieces.append(f"Opciones omitidas (no soportadas por ebook-convert): {skipped}")
-        pieces.extend(
-            [
-                self._render_stream("stdout", result.stdout),
-                self._render_stream("stderr", result.stderr),
-            ]
-        )
+        if include_streams:
+            pieces.extend(
+                [
+                    self._render_stream("stdout", result.stdout),
+                    self._render_stream("stderr", result.stderr),
+                ]
+            )
         return "\n\n".join(pieces)
 
     def _ask_output_epub(self, config: TabConfiguration) -> Optional[str]:  # pragma: no cover - UI helper
@@ -562,42 +788,94 @@ class ConfigNotebook(ttk.Frame):
             return f"{seconds * 1000:.0f} ms"
         return f"{seconds:.2f} s"
 
-    def preview_current_tab(self) -> None:
+    def preview_current_tab(self, on_complete: Optional[Callable[[PreviewResult], None]] = None) -> None:
         tab_id = self._current_tab_id()
         if tab_id is None:
             self._error_handler("No hay pestaña seleccionada para previsualizar.")
             return
-
-        config = self._config_by_tab[tab_id]
-        self._append_console(tab_id, "Ejecutando previsualización…", clear=True)
-
-        start = time.perf_counter()
-        try:
-            result = self._preview_runner(config)
-        except PreviewError as exc:
-            self._append_console(tab_id, self._format_run_error(exc), clear=True)
-            self._error_handler(str(exc))
-            self._update_status(tab_id, f"Error en previsualización: {exc}")
+        if tab_id in self._running_jobs:
+            self._error_handler("Ya hay una tarea en ejecución en esta pestaña. Espera a que finalice.")
             return
 
-        self._cleanup_preview_state(tab_id)
-        self._preview_state[tab_id] = result
-        viewer = self._viewer_widgets.get(tab_id)
-        if viewer is not None:
-            viewer.load(result.spine_first_html)
-        self._append_console(tab_id, self._format_preview_success(result), clear=True)
-        duration = time.perf_counter() - start
-        warnings = self._count_warnings(result.stdout, result.stderr)
-        size = self._format_size(self._directory_size(result.oeb_output))
-        status = f"Previsualización en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}"
-        if result.skipped_options:
-            status += f" · Opciones omitidas: {len(result.skipped_options)}"
-        self._update_status(tab_id, status)
+        config = self._config_by_tab[tab_id]
+        if not config.input_pdf:
+            error = PreviewError(
+                "Selecciona primero un PDF de entrada para previsualizar.",
+                command=[],
+                stdout="",
+                stderr="",
+                returncode=None,
+            )
+            self._append_console(tab_id, self._format_run_error(error), clear=True)
+            self._error_handler(str(error))
+            self._update_status(tab_id, f"Error en previsualización: {error}")
+            return
+
+        self._append_console(tab_id, "Ejecutando previsualización…", clear=True)
+        self._update_status(tab_id, "Previsualización en curso…")
+
+        start = time.perf_counter()
+        streaming_enabled = self._preview_runner is None
+
+        def runner(send: Callable[[str, Any], None]) -> PreviewResult:
+            if self._preview_runner is None:
+                return run_preview(
+                    config,
+                    catalog=self.catalog,
+                    run=self._make_streaming_run(tab_id, send),
+                )
+            return self._preview_runner(config)
+
+        def on_success(result: PreviewResult) -> None:
+            self._cleanup_preview_state(tab_id)
+            self._preview_state[tab_id] = result
+            viewer = self._viewer_widgets.get(tab_id)
+            if viewer is not None:
+                viewer.load(result.spine_first_html)
+            include_streams = not streaming_enabled
+            summary = self._format_preview_success(result, include_streams=include_streams)
+            if streaming_enabled:
+                if summary:
+                    self._append_console(tab_id, "")
+                    self._append_console(tab_id, summary)
+            else:
+                self._append_console(tab_id, summary, clear=True)
+            duration = time.perf_counter() - start
+            warnings = self._count_warnings(result.stdout, result.stderr)
+            size = self._format_size(self._directory_size(result.oeb_output))
+            status = f"Previsualización en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}"
+            if result.skipped_options:
+                status += f" · Opciones omitidas: {len(result.skipped_options)}"
+            self._update_status(tab_id, status)
+            if on_complete is not None:
+                on_complete(result)
+
+        def on_error(exc: Exception) -> None:
+            if isinstance(exc, PreviewError):
+                self._append_console(tab_id, self._format_run_error(exc))
+                self._error_handler(str(exc))
+                self._update_status(tab_id, f"Error en previsualización: {exc}")
+            else:  # pragma: no cover - defensive path
+                self._append_console(tab_id, f"[ERROR] {exc}")
+                self._error_handler(str(exc))
+                self._update_status(tab_id, f"Error en previsualización: {exc}")
+
+        self._start_background_job(
+            tab_id,
+            job_name="preview",
+            runner=runner,
+            on_success=on_success,
+            on_error=on_error,
+        )
 
     def generate_epub(self) -> None:
         tab_id = self._current_tab_id()
         if tab_id is None:
             self._error_handler("No hay pestaña seleccionada para generar el EPUB.")
+            return
+
+        if tab_id in self._running_jobs:
+            self._error_handler("Ya hay una tarea en ejecución en esta pestaña. Espera a que finalice.")
             return
 
         config = self._config_by_tab[tab_id]
@@ -613,30 +891,66 @@ class ConfigNotebook(ttk.Frame):
         config.output_epub = target_path
         self._summary_labels[tab_id].configure(text=self._format_summary(config))
 
-        self._append_console(tab_id, "Generando EPUB…")
+        self._append_console(tab_id, "Generando EPUB…", clear=True)
+        self._update_status(tab_id, "Generación en curso…")
 
         start = time.perf_counter()
-        try:
-            result = self._conversion_runner(config, target_path)
-        except ConversionError as exc:
-            self._append_console(tab_id, self._format_run_error(exc))
-            self._error_handler(str(exc))
-            self._update_status(tab_id, f"Error al generar EPUB: {exc}")
-            return
+        streaming_enabled = self._conversion_runner is None
 
-        self._append_console(tab_id, self._format_conversion_success(result))
-        duration = time.perf_counter() - start
-        warnings = self._count_warnings(result.stdout, result.stderr)
-        size = self._format_size(result.target.stat().st_size)
-        status = f"EPUB listo en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}"
-        if result.skipped_options:
-            status += f" · Opciones omitidas: {len(result.skipped_options)}"
-        self._update_status(tab_id, status)
+        def runner(send: Callable[[str, Any], None]) -> ConversionResult:
+            if self._conversion_runner is None:
+                return run_epub(
+                    config,
+                    target_path,
+                    catalog=self.catalog,
+                    run=self._make_streaming_run(tab_id, send),
+                )
+            return self._conversion_runner(config, target_path)
+
+        def on_success(result: ConversionResult) -> None:
+            include_streams = not streaming_enabled
+            summary = self._format_conversion_success(result, include_streams=include_streams)
+            if streaming_enabled:
+                if summary:
+                    self._append_console(tab_id, "")
+                    self._append_console(tab_id, summary)
+            else:
+                self._append_console(tab_id, summary, clear=True)
+            duration = time.perf_counter() - start
+            warnings = self._count_warnings(result.stdout, result.stderr)
+            size = self._format_size(result.target.stat().st_size)
+            status = f"EPUB listo en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}"
+            if result.skipped_options:
+                status += f" · Opciones omitidas: {len(result.skipped_options)}"
+            self._update_status(tab_id, status)
+
+        def on_error(exc: Exception) -> None:
+            if isinstance(exc, ConversionError):
+                self._append_console(tab_id, self._format_run_error(exc))
+                self._error_handler(str(exc))
+                self._update_status(tab_id, f"Error al generar EPUB: {exc}")
+            else:  # pragma: no cover - defensive fallback
+                self._append_console(tab_id, f"[ERROR] {exc}")
+                self._error_handler(str(exc))
+                self._update_status(tab_id, f"Error al generar EPUB: {exc}")
+
+        self._start_background_job(
+            tab_id,
+            job_name="conversion",
+            runner=runner,
+            on_success=on_success,
+            on_error=on_error,
+        )
 
     def export_oeb(self) -> None:
         tab_id = self._current_tab_id()
         if tab_id is None:
             self._error_handler("No hay pestaña seleccionada para exportar el OEB.")
+            return
+
+        if self.has_running_job(tab_id):
+            self._error_handler("Espera a que termine la tarea en curso antes de exportar el OEB.")
+            self._append_console(tab_id, "[ERROR] Hay una tarea en ejecución que impide exportar el OEB.")
             return
 
         config = self._config_by_tab[tab_id]
@@ -646,10 +960,17 @@ class ConfigNotebook(ttk.Frame):
 
         result = self._preview_state.get(tab_id)
         if result is None:
-            self.preview_current_tab()
-            result = self._preview_state.get(tab_id)
-            if result is None:
-                return
+            self._append_console(
+                tab_id,
+                "Generando previsualización antes de exportar el OEB…",
+            )
+            self._update_status(tab_id, "Previsualización requerida para exportar OEB…")
+
+            def _resume_export(_: PreviewResult) -> None:
+                self.export_oeb()
+
+            self.preview_current_tab(on_complete=_resume_export)
+            return
 
         target = self._ask_oeb_directory(config)
         if not target:
