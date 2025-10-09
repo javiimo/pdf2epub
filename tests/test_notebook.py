@@ -203,6 +203,8 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
     assert "todo bien" in text
     assert "Primer HTML" in text
     assert notebook._preview_state[tab_id].oeb_output == tmp_path / "oeb-dir"
+    viewer = notebook._viewer_widgets[tab_id]
+    assert viewer.last_path == tmp_path / "oeb-dir" / "chapter.xhtml"
     assert cleanup_calls == []
 
 
@@ -274,6 +276,55 @@ def test_preview_failure_shows_console(tmp_path, root, prompts):
     text = console.get("1.0", tk.END)
     assert "[ERROR]" in text
     assert "stderr msg" in text
+
+
+def test_reload_preview_updates_viewer(tmp_path, root, prompts):
+    def preview_runner(config: TabConfiguration) -> PreviewResult:
+        path = tmp_path / "ws"
+        path.mkdir()
+        html_path = tmp_path / "oeb" / "page.xhtml"
+        html_path.parent.mkdir(exist_ok=True)
+        html_path.write_text("old", encoding="utf-8")
+        return PreviewResult(
+            workspace=SimpleNamespace(path=path, cleanup=lambda: None),
+            command=["ebook-convert", "input.pdf", "output"],
+            oeb_output=html_path.parent,
+            subset_pdf=tmp_path / "subset.pdf",
+            stdout="",
+            stderr="",
+            spine_first_html=html_path,
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+
+    notebook.preview_current_tab()
+    root.update_idletasks()
+
+    viewer = notebook._viewer_widgets[tab_id]
+    html_path = viewer.last_path
+    assert html_path is not None
+    html_path.write_text("new content", encoding="utf-8")
+
+    notebook.reload_preview()
+    root.update_idletasks()
+
+    fallback = getattr(viewer, "_fallback", None)
+    if fallback is not None:
+        text = fallback.get("1.0", tk.END)
+        assert "new content" in text
+    console = notebook._console_widgets[tab_id]
+    assert "Recarga" in console.get("1.0", tk.END)
+
+
+def test_reload_without_preview_reports_error(root, prompts):
+    notebook = build_notebook(root, prompts)
+    notebook.reload_preview()
+    assert prompts.errors
 
 
 def test_pdf_selector_updates_configuration(tmp_path, root, prompts):

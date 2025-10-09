@@ -13,6 +13,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from app.forms import ConfigForm
+from app.html_viewer import HtmlViewer
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
 from core.runner.cli_parser import CliParseError, tab_configuration_from_cli
@@ -56,6 +57,7 @@ class ConfigNotebook(ttk.Frame):
         self._config_by_tab: Dict[str, TabConfiguration] = {}
         self._summary_labels: Dict[str, ttk.Label] = {}
         self._forms: Dict[str, ConfigForm] = {}
+        self._viewer_widgets: Dict[str, HtmlViewer] = {}
         self._console_widgets: Dict[str, tk.Text] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
         self._preview_runner = preview_runner or (lambda config: run_preview(config, catalog=self.catalog))
@@ -181,7 +183,7 @@ class ConfigNotebook(ttk.Frame):
         summary.grid(row=0, column=0, columnspan=2, sticky="ew")
 
         self._create_input_controls(widget, config, tab_widget_id)
-        self._create_console(widget, tab_widget_id)
+        self._create_side_panel(widget, tab_widget_id)
 
         form = ConfigForm(
             widget,
@@ -278,18 +280,40 @@ class ConfigNotebook(ttk.Frame):
         finally:
             controls["suspend"] = False
 
-    def _create_console(self, parent: ttk.Frame, tab_widget_id: str) -> None:
-        frame = ttk.LabelFrame(parent, text="Consola")
-        frame.grid(row=2, column=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
-        frame.rowconfigure(0, weight=1)
-        frame.columnconfigure(0, weight=1)
+    def _create_side_panel(self, parent: ttk.Frame, tab_widget_id: str) -> None:
+        panel = ttk.Frame(parent)
+        panel.grid(row=2, column=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
+        panel.rowconfigure(0, weight=3)
+        panel.rowconfigure(1, weight=2)
+        panel.columnconfigure(0, weight=1)
 
-        console = tk.Text(frame, wrap="word", height=12, state="disabled")
+        viewer_frame = ttk.LabelFrame(panel, text="Visor HTML")
+        viewer_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
+        viewer_frame.columnconfigure(0, weight=1)
+        viewer_frame.rowconfigure(0, weight=1)
+
+        viewer = HtmlViewer(viewer_frame)
+        viewer.grid(row=0, column=0, sticky="nsew", padx=6, pady=(6, 0))
+
+        reload_button = ttk.Button(
+            viewer_frame,
+            text="Recargar",
+            command=lambda tab_id=tab_widget_id: self.reload_preview(tab_id),
+        )
+        reload_button.grid(row=1, column=0, sticky="w", padx=6, pady=6)
+
+        console_frame = ttk.LabelFrame(panel, text="Consola")
+        console_frame.grid(row=1, column=0, sticky="nsew")
+        console_frame.rowconfigure(0, weight=1)
+        console_frame.columnconfigure(0, weight=1)
+
+        console = tk.Text(console_frame, wrap="word", height=8, state="disabled")
         console.grid(row=0, column=0, sticky="nsew")
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=console.yview)
+        scrollbar = ttk.Scrollbar(console_frame, orient="vertical", command=console.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         console.configure(yscrollcommand=scrollbar.set)
 
+        self._viewer_widgets[tab_widget_id] = viewer
         self._console_widgets[tab_widget_id] = console
 
     def _append_console(self, tab_widget_id: str, message: str, *, clear: bool = False) -> None:
@@ -317,6 +341,9 @@ class ConfigNotebook(ttk.Frame):
             except Exception:
                 # Silently ignore workspace cleanup issues in the UI layer.
                 pass
+        viewer = self._viewer_widgets.get(tab_widget_id)
+        if viewer is not None:
+            viewer.reset()
 
     def _format_command(self, command: Iterable[str]) -> str:
         return " ".join(shlex.quote(str(part)) for part in command)
@@ -366,7 +393,25 @@ class ConfigNotebook(ttk.Frame):
 
         self._cleanup_preview_state(tab_id)
         self._preview_state[tab_id] = result
+        viewer = self._viewer_widgets.get(tab_id)
+        if viewer is not None:
+            viewer.load(result.spine_first_html)
         self._append_console(tab_id, self._format_preview_success(result), clear=True)
+
+    def reload_preview(self, tab_widget_id: Optional[str] = None) -> None:
+        tab_id = tab_widget_id or self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para recargar.")
+            return
+
+        result = self._preview_state.get(tab_id)
+        viewer = self._viewer_widgets.get(tab_id)
+        if not result or viewer is None:
+            self._error_handler("Aún no hay previsualización disponible para recargar.")
+            return
+
+        viewer.reload()
+        self._append_console(tab_id, "Recarga del visor completada.")
 
     def _on_input_pdf_changed(self, tab_widget_id: str) -> None:
         controls = self._input_controls.get(tab_widget_id)
