@@ -32,7 +32,23 @@ def test_run_preview_returns_result(tmp_path):
         return DummyWorkspace(workspace_path)
 
     def fake_run(command, capture_output, text, check):
-        (workspace_path / "preview-oeb").mkdir()
+        oeb_dir = workspace_path / "preview-oeb"
+        content_dir = oeb_dir / "Text"
+        content_dir.mkdir(parents=True, exist_ok=True)
+        html_path = content_dir / "chapter1.xhtml"
+        html_path.write_text("<html><body>capítulo</body></html>", encoding="utf-8")
+        opf = """<?xml version='1.0' encoding='utf-8'?>
+<package xmlns='http://www.idpf.org/2007/opf'>
+  <manifest>
+    <item id='chap1' href='Text/chapter1.xhtml' media-type='application/xhtml+xml'/>
+  </manifest>
+  <spine>
+    <itemref idref='chap1'/>
+  </spine>
+</package>
+"""
+        oeb_dir.mkdir(exist_ok=True)
+        (oeb_dir / "content.opf").write_text(opf, encoding="utf-8")
         return subprocess.CompletedProcess(command, returncode=0, stdout="ok", stderr="warn")
 
     config.options["base-font-size"] = "13"
@@ -48,6 +64,7 @@ def test_run_preview_returns_result(tmp_path):
     assert result.stdout == "ok"
     assert result.stderr == "warn"
     assert result.workspace.cleaned is False
+    assert result.spine_first_html.name == "chapter1.xhtml"
 
 
 def test_run_preview_cleans_workspace_on_failure(tmp_path):

@@ -1,3 +1,5 @@
 """Parser utilities to inspect OEB/OPF outputs."""
 
-# Responsible for extracting structured data from conversion artifacts.
+from .opf import OpfParserError, SpineItem, find_first_spine_html, parse_spine
+
+__all__ = ["OpfParserError", "SpineItem", "find_first_spine_html", "parse_spine"]

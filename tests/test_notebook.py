@@ -173,13 +173,19 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
         return SimpleNamespace(path=path, cleanup=cleanup)
 
     def preview_runner(config: TabConfiguration) -> PreviewResult:
+        workspace = make_workspace("ws1")
+        oeb_dir = tmp_path / "oeb-dir"
+        oeb_dir.mkdir(exist_ok=True)
+        html_path = oeb_dir / "chapter.xhtml"
+        html_path.write_text("<html/>", encoding="utf-8")
         return PreviewResult(
-            workspace=make_workspace("ws1"),
+            workspace=workspace,
             command=["ebook-convert", "input.pdf", "output"],
-            oeb_output=tmp_path / "oeb-dir",
+            oeb_output=oeb_dir,
             subset_pdf=tmp_path / "subset.pdf",
             stdout="todo bien",
             stderr="",
+            spine_first_html=html_path,
         )
 
     notebook = build_notebook(root, prompts, preview_runner=preview_runner)
@@ -195,6 +201,7 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
     text = console.get("1.0", tk.END)
     assert "[OK]" in text
     assert "todo bien" in text
+    assert "Primer HTML" in text
     assert notebook._preview_state[tab_id].oeb_output == tmp_path / "oeb-dir"
     assert cleanup_calls == []
 
@@ -210,6 +217,8 @@ def test_preview_replaces_previous_workspace(tmp_path, root, prompts):
             cleanup_calls.append(label)
 
         workspace = SimpleNamespace(path=path, cleanup=cleanup)
+        html_path = path / "chapter.xhtml"
+        html_path.write_text("<html/>", encoding="utf-8")
         return PreviewResult(
             workspace=workspace,
             command=["ebook-convert", "input.pdf", label],
@@ -217,6 +226,7 @@ def test_preview_replaces_previous_workspace(tmp_path, root, prompts):
             subset_pdf=tmp_path / f"{label}-subset.pdf",
             stdout=label,
             stderr="",
+            spine_first_html=html_path,
         )
 
     results = [make_result("ws1"), make_result("ws2")]

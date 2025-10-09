@@ -332,6 +332,7 @@ class ConfigNotebook(ttk.Frame):
             "[OK] Previsualización completada.",
             f"Comando: {self._format_command(result.command)}",
             f"OEB generado en: {result.oeb_output}",
+            f"Primer HTML: {result.spine_first_html}",
             self._render_stream("stdout", result.stdout),
             self._render_stream("stderr", result.stderr),
         ]

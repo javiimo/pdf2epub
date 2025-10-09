@@ -9,6 +9,7 @@ from typing import Callable, List, Optional, Sequence
 
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, get_catalog
+from core.parser import OpfParserError, find_first_spine_html
 from core.runner.options_cli import build_option_arguments
 from core.runner.pdf_subset import PdfSubsetError, prepare_pdf_subset
 from core.runner.temp_manager import TemporaryWorkspace
@@ -30,6 +31,7 @@ class PreviewResult:
     subset_pdf: Path
     stdout: str
     stderr: str
+    spine_first_html: Path
 
 
 class PreviewError(RuntimeError):
@@ -150,6 +152,18 @@ def run_preview(
             returncode=completed.returncode,
         )
 
+    try:
+        spine_first = find_first_spine_html(oeb_output)
+    except OpfParserError as exc:
+        workspace.cleanup()
+        raise PreviewError(
+            f"No se pudo interpretar content.opf: {exc}",
+            command=command,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=completed.returncode,
+        ) from exc
+
     return PreviewResult(
         workspace=workspace,
         command=command,
@@ -157,4 +171,5 @@ def run_preview(
         subset_pdf=subset_pdf,
         stdout=stdout,
         stderr=stderr,
+        spine_first_html=spine_first,
     )

@@ -9,7 +9,7 @@
 - [x] Selector de archivo de entrada PDF y rango de páginas.
 - [x] Subconjunto de páginas: si se define rango, invoca qpdf --pages IN N-M -- OUT.pdf en tmp antes de convertir.
 - [x] Botón “Previsualizar”: ejecuta ebook-convert IN.pdf OUT_DIR_OEB (sin extensión) con flags de la pestaña; captura stdout/stderr en una consola lateral.
-- [ ] Parser OPF: abre content.opf en OUT_DIR_OEB, lee el spine y determina el primer HTML a mostrar.
+- [x] Parser OPF: abre content.opf en OUT_DIR_OEB, lee el spine y determina el primer HTML a mostrar.
 - [ ] Visor HTML: integra tkinterweb (o cefpython3 si prefieres Chromium). Carga el HTML del spine; soporta recarga rápida.
 - [ ] Botón “Generar EPUB”: ejecuta ebook-convert IN.pdf OUT.epub con los mismos flags. Pregunta destino y escribe solo a demanda.
 - [ ] Botón “Exportar OEB”: opcional para inspección avanzada.
