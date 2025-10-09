@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 from uuid import uuid4
 
 import tkinter as tk
@@ -53,6 +53,7 @@ class ConfigNotebook(ttk.Frame):
         self._config_by_tab: Dict[str, TabConfiguration] = {}
         self._summary_labels: Dict[str, ttk.Label] = {}
         self._forms: Dict[str, ConfigForm] = {}
+        self._input_controls: Dict[str, Dict[str, Any]] = {}
         self._tab_counter = 1
 
         self._build_toolbar()
@@ -132,6 +133,7 @@ class ConfigNotebook(ttk.Frame):
         self.notebook.tab(tab_widget_id, text=config.title)
         label = self._summary_labels[tab_widget_id]
         label.configure(text=self._format_summary(config))
+        self._sync_input_controls(tab_widget_id)
         self._forms[tab_widget_id].sync_from_config()
 
     def _handle_form_change(self, tab_widget_id: str, option_id: str) -> None:
@@ -157,7 +159,9 @@ class ConfigNotebook(ttk.Frame):
     def _add_tab(self, config: TabConfiguration) -> str:
         widget = ttk.Frame(self.notebook)
         widget.columnconfigure(0, weight=1)
-        widget.rowconfigure(1, weight=1)
+        widget.rowconfigure(2, weight=1)
+
+        tab_widget_id = str(widget)
 
         summary = ttk.Label(
             widget,
@@ -168,14 +172,15 @@ class ConfigNotebook(ttk.Frame):
         )
         summary.grid(row=0, column=0, sticky="ew")
 
-        tab_widget_id = str(widget)
+        self._create_input_controls(widget, config, tab_widget_id)
+
         form = ConfigForm(
             widget,
             catalog=self.catalog,
             config=config,
             on_change=lambda option_id: self._handle_form_change(tab_widget_id, option_id),
         )
-        form.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        form.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
 
         self.notebook.add(widget, text=config.title)
         self._config_by_tab[tab_widget_id] = config
@@ -191,15 +196,118 @@ class ConfigNotebook(ttk.Frame):
     def _format_summary(self, config: TabConfiguration) -> str:
         input_path = str(config.input_pdf or "Seleccionar PDF…")
         output_path = str(config.output_epub or "Sin destino EPUB")
+        page_range = config.page_range or "Todas las páginas"
         options_count = len(config.options)
         return "\n".join(
             [
                 f"Título: {config.title}",
                 f"Entrada: {input_path}",
                 f"Salida: {output_path}",
+                f"Rango: {page_range}",
                 f"Opciones configuradas: {options_count}",
             ]
         )
+
+    # -- Input controls ------------------------------------------------
+
+    def _create_input_controls(
+        self,
+        parent: ttk.Frame,
+        config: TabConfiguration,
+        tab_widget_id: str,
+    ) -> None:
+        frame = ttk.LabelFrame(parent, text="Entrada PDF")
+        frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
+        frame.columnconfigure(1, weight=1)
+
+        path_var = tk.StringVar(value=str(config.input_pdf or ""))
+        page_var = tk.StringVar(value=config.page_range or "")
+
+        controls: Dict[str, Any] = {
+            "frame": frame,
+            "path_var": path_var,
+            "page_var": page_var,
+            "suspend": False,
+        }
+        self._input_controls[tab_widget_id] = controls
+
+        path_var.trace_add(
+            "write",
+            lambda *_ignored, tab_id=tab_widget_id: self._on_input_pdf_changed(tab_id),
+        )
+        page_var.trace_add(
+            "write",
+            lambda *_ignored, tab_id=tab_widget_id: self._on_page_range_changed(tab_id),
+        )
+
+        ttk.Label(frame, text="Archivo PDF").grid(row=0, column=0, sticky="w", padx=(8, 6), pady=4)
+        entry = ttk.Entry(frame, textvariable=path_var)
+        entry.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=4)
+        browse = ttk.Button(
+            frame,
+            text="Seleccionar…",
+            command=lambda tab_id=tab_widget_id: self._browse_input_pdf(tab_id),
+        )
+        browse.grid(row=0, column=2, sticky="e", padx=(0, 8), pady=4)
+
+        ttk.Label(frame, text="Rango de páginas").grid(row=1, column=0, sticky="w", padx=(8, 6), pady=4)
+        page_entry = ttk.Entry(frame, textvariable=page_var)
+        page_entry.grid(row=1, column=1, sticky="ew", padx=(0, 6), pady=4)
+        ttk.Label(frame, text="Ej: 1-5,8,10").grid(row=1, column=2, sticky="e", padx=(0, 8), pady=4)
+
+    def _sync_input_controls(self, tab_widget_id: str) -> None:
+        controls = self._input_controls.get(tab_widget_id)
+        if not controls:
+            return
+        controls["suspend"] = True
+        try:
+            config = self._config_by_tab[tab_widget_id]
+            path_value = str(config.input_pdf) if config.input_pdf else ""
+            page_value = config.page_range or ""
+            controls["path_var"].set(path_value)
+            controls["page_var"].set(page_value)
+        finally:
+            controls["suspend"] = False
+
+    def _on_input_pdf_changed(self, tab_widget_id: str) -> None:
+        controls = self._input_controls.get(tab_widget_id)
+        if not controls or controls.get("suspend"):
+            return
+        raw = controls["path_var"].get().strip()
+        config = self._config_by_tab[tab_widget_id]
+        if raw:
+            config.input_pdf = Path(raw).expanduser()
+        else:
+            config.input_pdf = None
+        summary = self._summary_labels[tab_widget_id]
+        summary.configure(text=self._format_summary(config))
+
+    def _on_page_range_changed(self, tab_widget_id: str) -> None:
+        controls = self._input_controls.get(tab_widget_id)
+        if not controls or controls.get("suspend"):
+            return
+        raw = controls["page_var"].get().strip()
+        config = self._config_by_tab[tab_widget_id]
+        config.page_range = raw or None
+        summary = self._summary_labels[tab_widget_id]
+        summary.configure(text=self._format_summary(config))
+
+    def _browse_input_pdf(self, tab_widget_id: str) -> None:  # pragma: no cover - UI helper
+        controls = self._input_controls.get(tab_widget_id)
+        if not controls:
+            return
+        current = controls["path_var"].get().strip()
+        initial = None
+        if current:
+            initial = str(Path(current).expanduser().parent)
+        selected = filedialog.askopenfilename(
+            parent=self.winfo_toplevel(),
+            title="Selecciona PDF de entrada",
+            initialdir=initial,
+            filetypes=[("PDF", "*.pdf"), ("Todos los archivos", "*.*")],
+        )
+        if selected:
+            controls["path_var"].set(selected)
 
     def _generate_tab_id(self) -> str:
         return f"tab-{uuid4().hex}"

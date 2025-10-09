@@ -144,6 +144,39 @@ def test_boolean_option_toggle_updates_configuration(root, prompts):
     assert config.options["enable-heuristics"] is True
 
 
+def test_pdf_selector_updates_configuration(tmp_path, root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    controls = notebook._input_controls[tab_id]
+
+    pdf_path = tmp_path / "documento.pdf"
+    controls["path_var"].set(str(pdf_path))
+    root.update_idletasks()
+    config = notebook.current_configuration()
+    assert config is not None
+    assert config.input_pdf == pdf_path
+
+    controls["path_var"].set("   ")
+    root.update_idletasks()
+    assert config.input_pdf is None
+
+
+def test_page_range_entry_updates_configuration(root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    controls = notebook._input_controls[tab_id]
+
+    controls["page_var"].set(" 5-10 ")
+    root.update_idletasks()
+    config = notebook.current_configuration()
+    assert config is not None
+    assert config.page_range == "5-10"
+
+    controls["page_var"].set(" ")
+    root.update_idletasks()
+    assert config.page_range is None
+
+
 def test_tooltip_text_available_for_fields(root, prompts):
     notebook = build_notebook(root, prompts)
     tab_id = notebook.notebook.select()
