@@ -17,6 +17,7 @@ from app.html_viewer import HtmlViewer
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
 from core.runner.cli_parser import CliParseError, tab_configuration_from_cli
+from core.runner.epub import ConversionError, ConversionResult, run_epub
 from core.runner.preview import PreviewError, PreviewResult, run_preview
 
 CliPrompt = Callable[[], Optional[str]]
@@ -36,6 +37,7 @@ class ConfigNotebook(ttk.Frame):
         export_prompt: Optional[ExportPrompt] = None,
         error_handler: Optional[ErrorHandler] = None,
         preview_runner: Optional[Callable[[TabConfiguration], PreviewResult]] = None,
+        conversion_runner: Optional[Callable[[TabConfiguration, Path], ConversionResult]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -61,6 +63,9 @@ class ConfigNotebook(ttk.Frame):
         self._console_widgets: Dict[str, tk.Text] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
         self._preview_runner = preview_runner or (lambda config: run_preview(config, catalog=self.catalog))
+        self._conversion_runner = conversion_runner or (
+            lambda config, target: run_epub(config, target=target, catalog=self.catalog)
+        )
         self._input_controls: Dict[str, Dict[str, Any]] = {}
         self._tab_counter = 1
 
@@ -158,6 +163,7 @@ class ConfigNotebook(ttk.Frame):
             ("Importar línea CLI", self.import_cli_line),
             ("Exportar", self.export_current_tab),
             ("Previsualizar", self.preview_current_tab),
+            ("Generar EPUB", self.generate_epub),
         ]
 
         for idx, (label, command) in enumerate(buttons):
@@ -365,15 +371,41 @@ class ConfigNotebook(ttk.Frame):
         ]
         return "\n\n".join(pieces)
 
-    def _format_preview_error(self, error: PreviewError) -> str:
-        command = error.command or []
+    def _format_run_error(self, error: Any) -> str:
+        command = getattr(error, "command", None) or []
         pieces = [
             f"[ERROR] {error}",
             f"Comando: {self._format_command(command) if command else '<no ejecutado>'}",
-            self._render_stream("stdout", error.stdout),
-            self._render_stream("stderr", error.stderr),
+            self._render_stream("stdout", getattr(error, "stdout", "")),
+            self._render_stream("stderr", getattr(error, "stderr", "")),
         ]
         return "\n\n".join(pieces)
+
+    def _format_conversion_success(self, result: ConversionResult) -> str:
+        pieces = [
+            "[OK] EPUB generado.",
+            f"Comando: {self._format_command(result.command)}",
+            f"Archivo: {result.target}",
+            self._render_stream("stdout", result.stdout),
+            self._render_stream("stderr", result.stderr),
+        ]
+        return "\n\n".join(pieces)
+
+    def _ask_output_epub(self, config: TabConfiguration) -> Optional[str]:  # pragma: no cover - UI helper
+        initialfile = (config.output_epub.name if config.output_epub else f"{config.title or 'salida'}.epub")
+        initialdir = None
+        if config.output_epub:
+            initialdir = str(config.output_epub.parent)
+        elif config.input_pdf:
+            initialdir = str(Path(config.input_pdf).parent)
+        return filedialog.asksaveasfilename(
+            defaultextension=".epub",
+            filetypes=[("EPUB", "*.epub"), ("Todos los archivos", "*.*")],
+            initialfile=initialfile,
+            initialdir=initialdir,
+            title="Guardar EPUB",
+            parent=self.winfo_toplevel(),
+        )
 
     def preview_current_tab(self) -> None:
         tab_id = self._current_tab_id()
@@ -387,7 +419,7 @@ class ConfigNotebook(ttk.Frame):
         try:
             result = self._preview_runner(config)
         except PreviewError as exc:
-            self._append_console(tab_id, self._format_preview_error(exc), clear=True)
+            self._append_console(tab_id, self._format_run_error(exc), clear=True)
             self._error_handler(str(exc))
             return
 
@@ -397,6 +429,36 @@ class ConfigNotebook(ttk.Frame):
         if viewer is not None:
             viewer.load(result.spine_first_html)
         self._append_console(tab_id, self._format_preview_success(result), clear=True)
+
+    def generate_epub(self) -> None:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para generar el EPUB.")
+            return
+
+        config = self._config_by_tab[tab_id]
+        if not config.input_pdf:
+            self._error_handler("Selecciona primero un PDF de entrada para generar el EPUB.")
+            return
+
+        target = self._ask_output_epub(config)
+        if not target:
+            return
+
+        target_path = Path(target)
+        config.output_epub = target_path
+        self._summary_labels[tab_id].configure(text=self._format_summary(config))
+
+        self._append_console(tab_id, "Generando EPUB…")
+
+        try:
+            result = self._conversion_runner(config, target_path)
+        except ConversionError as exc:
+            self._append_console(tab_id, self._format_run_error(exc))
+            self._error_handler(str(exc))
+            return
+
+        self._append_console(tab_id, self._format_conversion_success(result))
 
     def reload_preview(self, tab_widget_id: Optional[str] = None) -> None:
         tab_id = tab_widget_id or self._current_tab_id()

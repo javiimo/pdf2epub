@@ -1,6 +1,8 @@
+from pathlib import Path
+
 from core.configuration import TabConfiguration
 from core.options.catalog import get_catalog
-from core.runner.options_cli import build_option_arguments
+from core.runner.options_cli import build_convert_command, build_option_arguments
 
 
 def test_build_option_arguments_handles_various_types():
@@ -25,3 +27,19 @@ def test_build_option_arguments_handles_various_types():
         "--verbose",
         "--verbose",
     ]
+
+
+def test_build_convert_command_combines_base_and_options():
+    catalog = get_catalog()
+    config = TabConfiguration(tab_id="t2", title="Cmd", options={"base-font-size": "13"})
+
+    command = build_convert_command(
+        "ebook-convert",
+        Path("input.pdf"),
+        Path("output.epub"),
+        config,
+        catalog,
+    )
+
+    assert command[:3] == ["ebook-convert", "input.pdf", "output.epub"]
+    assert command[3:] == ["--base-font-size", "13"]

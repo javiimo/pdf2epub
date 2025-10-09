@@ -9,6 +9,7 @@ from app.notebook import ConfigNotebook
 from core.configuration import TabConfiguration
 from core.options.catalog import get_catalog
 from core.runner.preview import PreviewError, PreviewResult
+from core.runner.epub import ConversionError, ConversionResult
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def prompts():
     return PromptHelper()
 
 
-def build_notebook(root, prompts, preview_runner=None):
+def build_notebook(root, prompts, preview_runner=None, conversion_runner=None):
     widget = ConfigNotebook(
         root,
         catalog=get_catalog(),
@@ -52,6 +53,7 @@ def build_notebook(root, prompts, preview_runner=None):
         export_prompt=prompts.export_prompt,
         error_handler=prompts.error_handler,
         preview_runner=preview_runner,
+        conversion_runner=conversion_runner,
     )
     root.update_idletasks()
     return widget
@@ -276,6 +278,95 @@ def test_preview_failure_shows_console(tmp_path, root, prompts):
     text = console.get("1.0", tk.END)
     assert "[ERROR]" in text
     assert "stderr msg" in text
+
+
+def test_generate_epub_updates_config_and_console(tmp_path, root, prompts):
+    target = tmp_path / "salida.epub"
+
+    def conversion_runner(config: TabConfiguration, destination: Path) -> ConversionResult:
+        assert destination == target
+        destination.write_text("ebook", encoding="utf-8")
+        return ConversionResult(
+            command=["ebook-convert", "input.pdf", str(destination)],
+            target=destination,
+            subset_pdf=tmp_path / "subset.pdf",
+            stdout="todo ok",
+            stderr="",
+        )
+
+    notebook = build_notebook(root, prompts, conversion_runner=conversion_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+    notebook._ask_output_epub = lambda _: str(target)
+
+    notebook.generate_epub()
+    root.update_idletasks()
+
+    assert config.output_epub == target
+    summary = notebook._summary_labels[tab_id].cget("text")
+    assert str(target) in summary
+    console = notebook._console_widgets[tab_id]
+    text = console.get("1.0", tk.END)
+    assert "[OK] EPUB generado" in text
+    assert "todo ok" in text
+    assert not prompts.errors
+
+
+def test_generate_epub_reports_errors(tmp_path, root, prompts):
+    def conversion_runner(config: TabConfiguration, destination: Path):
+        raise ConversionError(
+            "Fallo",
+            command=["ebook-convert", "input.pdf", str(destination)],
+            stdout="out",
+            stderr="err",
+            returncode=2,
+        )
+
+    notebook = build_notebook(root, prompts, conversion_runner=conversion_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+    notebook._ask_output_epub = lambda _: str(tmp_path / "salida.epub")
+
+    notebook.generate_epub()
+    root.update_idletasks()
+
+    assert prompts.errors
+    console = notebook._console_widgets[tab_id]
+    text = console.get("1.0", tk.END)
+    assert "[ERROR]" in text
+    assert "err" in text
+
+
+def test_generate_epub_cancel_keeps_state(tmp_path, root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+    notebook._ask_output_epub = lambda _: ""
+
+    notebook.generate_epub()
+    root.update_idletasks()
+
+    assert config.output_epub is None
+    console = notebook._console_widgets[tab_id]
+    assert console.get("1.0", tk.END).strip() == ""
+    assert not prompts.errors
+
+
+def test_generate_epub_requires_input(root, prompts):
+    notebook = build_notebook(root, prompts)
+
+    notebook.generate_epub()
+
+    assert prompts.errors
 
 
 def test_reload_preview_updates_viewer(tmp_path, root, prompts):

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, OptionMetadata
 
-__all__ = ["build_option_arguments"]
+__all__ = ["build_option_arguments", "build_convert_command"]
 
 
 def _normalize_items(config: TabConfiguration, catalog: Catalog) -> Iterable[Tuple[OptionMetadata, object]]:
@@ -75,3 +76,15 @@ def build_option_arguments(config: TabConfiguration, catalog: Catalog) -> List[s
     for metadata, value in _normalize_items(config, catalog):
         args.extend(_option_to_args(metadata, value))
     return args
+
+
+def build_convert_command(
+    executable: str,
+    input_path: Path,
+    output_path: Path,
+    config: TabConfiguration,
+    catalog: Catalog,
+) -> List[str]:
+    """Compose the full ebook-convert command line for the given config."""
+    base = [executable, str(input_path), str(output_path)]
+    return base + build_option_arguments(config, catalog)

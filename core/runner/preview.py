@@ -10,7 +10,7 @@ from typing import Callable, List, Optional, Sequence
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, get_catalog
 from core.parser import OpfParserError, find_first_spine_html
-from core.runner.options_cli import build_option_arguments
+from core.runner.options_cli import build_convert_command
 from core.runner.pdf_subset import PdfSubsetError, prepare_pdf_subset
 from core.runner.temp_manager import TemporaryWorkspace
 
@@ -51,20 +51,6 @@ class PreviewError(RuntimeError):
         self.stdout = stdout
         self.stderr = stderr
         self.returncode = returncode
-
-
-def _build_command(
-    ebook_convert_path: str,
-    pdf_input: Path,
-    oeb_output: Path,
-    config: TabConfiguration,
-    catalog: Catalog,
-) -> List[str]:
-    base = [ebook_convert_path, str(pdf_input), str(oeb_output)]
-    option_args = build_option_arguments(config, catalog)
-    return base + option_args
-
-
 def run_preview(
     config: TabConfiguration,
     *,
@@ -104,7 +90,7 @@ def run_preview(
         ) from exc
 
     oeb_output = workspace.path / "preview-oeb"
-    command = _build_command(
+    command = build_convert_command(
         ebook_convert_path,
         subset_pdf,
         oeb_output,
