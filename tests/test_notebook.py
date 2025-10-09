@@ -8,6 +8,7 @@ import tkinter as tk
 from app.notebook import ConfigNotebook
 from core.configuration import TabConfiguration
 from core.options.catalog import get_catalog
+from core.presets import Preset
 from core.runner.preview import PreviewError, PreviewResult
 from core.runner.epub import ConversionError, ConversionResult
 
@@ -45,7 +46,14 @@ def prompts():
     return PromptHelper()
 
 
-def build_notebook(root, prompts, preview_runner=None, conversion_runner=None):
+def build_notebook(
+    root,
+    prompts,
+    preview_runner=None,
+    conversion_runner=None,
+    presets=None,
+    preset_selector=None,
+):
     widget = ConfigNotebook(
         root,
         catalog=get_catalog(),
@@ -54,6 +62,8 @@ def build_notebook(root, prompts, preview_runner=None, conversion_runner=None):
         error_handler=prompts.error_handler,
         preview_runner=preview_runner,
         conversion_runner=conversion_runner,
+        presets=presets,
+        preset_selector=preset_selector,
     )
     root.update_idletasks()
     return widget
@@ -131,6 +141,54 @@ def test_import_cli_line_supports_multiple_commands(root, prompts):
     assert any((cfg.input_pdf and cfg.input_pdf.name == "in1.pdf") for cfg in configs)
     assert any(cfg.options.get("base-font-size") == "14" for cfg in configs)
 
+
+def test_apply_preset_updates_options(root, prompts):
+    presets = [
+        Preset(
+            id="test",
+            name="Kindle",
+            description="",
+            category="device",
+            options={"output-profile": "kindle_pw", "base-font-size": "13"},
+        )
+    ]
+
+    def selector(items):
+        return items[0]
+
+    notebook = build_notebook(root, prompts, presets=presets, preset_selector=selector)
+    tab_id = notebook.notebook.select()
+
+    notebook.apply_preset()
+    root.update_idletasks()
+
+    config = notebook.current_configuration()
+    assert config is not None
+    assert config.options["output-profile"] == "kindle_pw"
+    assert config.options["base-font-size"] == "13"
+
+    form = notebook._forms[tab_id]
+    field = form.sections["profiles"].fields["output-profile"]
+    assert field.var.get() == "kindle_pw"
+
+
+def test_save_preset_creates_custom_entry(root, prompts, monkeypatch):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.options["base-font-size"] = "16"
+
+    monkeypatch.setattr("app.notebook.simpledialog.askstring", lambda *a, **k: "Mi preset")
+
+    existing = len(notebook._presets)
+    notebook.save_preset()
+    root.update_idletasks()
+
+    assert len(notebook._presets) == existing + 1
+    created = notebook._presets[-1]
+    assert created.name == "Mi preset"
+    assert created.options["base-font-size"] == "16"
 
 def test_export_current_tab_writes_configuration(tmp_path, root, prompts):
     prompts.export_path = tmp_path / "config.json"

@@ -15,15 +15,16 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from app.forms import ConfigForm
 from app.html_viewer import HtmlViewer
+from app.preset_dialog import choose_preset
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
+from core.presets import Preset, apply_preset, get_presets
 from core.runner.cli_parser import (
     CliParseError,
     CliParseResult,
     parse_cli_commands,
     tab_configuration_from_cli,
 )
-from core.runner.cli_parser import CliParseError, parse_cli_parts
 from core.runner.epub import ConversionError, ConversionResult, run_epub
 from core.runner.preview import PreviewError, PreviewResult, run_preview
 
@@ -45,6 +46,8 @@ class ConfigNotebook(ttk.Frame):
         error_handler: Optional[ErrorHandler] = None,
         preview_runner: Optional[Callable[[TabConfiguration], PreviewResult]] = None,
         conversion_runner: Optional[Callable[[TabConfiguration, Path], ConversionResult]] = None,
+        presets: Optional[Iterable[Preset]] = None,
+        preset_selector: Optional[Callable[[List[Preset]], Optional[Preset]]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -73,6 +76,8 @@ class ConfigNotebook(ttk.Frame):
         self._conversion_runner = conversion_runner or (
             lambda config, target: run_epub(config, target=target, catalog=self.catalog)
         )
+        self._presets = list(presets) if presets is not None else get_presets()
+        self._preset_selector = preset_selector or (lambda items: choose_preset(self, items))
         self._input_controls: Dict[str, Dict[str, Any]] = {}
         self._tab_counter = 1
 
@@ -138,6 +143,52 @@ class ConfigNotebook(ttk.Frame):
         config.title = self._ensure_unique_title(config.title)
         return config
 
+    def apply_preset(self) -> None:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para aplicar un preset.")
+            return
+
+        if not self._presets:
+            self._error_handler("No hay presets configurados.")
+            return
+
+        preset = self._preset_selector(self._presets)
+        if preset is None:
+            return
+
+        config = self._config_by_tab[tab_id]
+        apply_preset(config.options, preset)
+        self._forms[tab_id].sync_from_config()
+        self._summary_labels[tab_id].configure(text=self._format_summary(config))
+        self._append_console(tab_id, f"[OK] Preset aplicado: {preset.name}")
+
+    def save_preset(self) -> None:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para guardar un preset.")
+            return
+
+        config = self._config_by_tab[tab_id]
+        name = simpledialog.askstring(
+            "Guardar preset",
+            "Nombre del nuevo preset:",
+            initialvalue=config.title,
+            parent=self.winfo_toplevel(),
+        )
+        if not name:
+            return
+
+        preset = Preset(
+            id=f"custom-{uuid4().hex}",
+            name=name.strip(),
+            description=f"Preset personalizado basado en {config.title}",
+            category="custom",
+            options=copy.deepcopy(config.options),
+        )
+        self._presets.append(preset)
+        self._append_console(tab_id, f"[OK] Preset guardado: {preset.name}")
+
     def export_current_tab(self) -> Optional[Path]:
         tab_id = self._current_tab_id()
         if tab_id is None:
@@ -186,6 +237,8 @@ class ConfigNotebook(ttk.Frame):
         buttons = [
             ("Nueva", self.new_tab),
             ("Clonar", self.clone_current_tab),
+            ("Presets", self.apply_preset),
+            ("Guardar preset", self.save_preset),
             ("Importar línea CLI", self.import_cli_line),
             ("Exportar", self.export_current_tab),
             ("Previsualizar", self.preview_current_tab),
