@@ -5,12 +5,19 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Sequence
 
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, OptionMetadata
 
-__all__ = ["CliParseError", "CliParseResult", "parse_cli_command", "tab_configuration_from_cli"]
+__all__ = [
+    "CliParseError",
+    "CliParseResult",
+    "parse_cli_command",
+    "parse_cli_commands",
+    "parse_cli_parts",
+    "tab_configuration_from_cli",
+]
 
 
 class CliParseError(RuntimeError):
@@ -63,18 +70,12 @@ def _resolve_option(flag: str, catalog: Catalog) -> OptionMetadata:
     return option
 
 
-def parse_cli_command(cli_line: str, catalog: Catalog) -> CliParseResult:
-    """Parse a full ebook-convert command line."""
-    try:
-        parts = shlex.split(cli_line, comments=False, posix=True)
-    except ValueError as exc:
-        raise CliParseError(f"No se pudo tokenizar la línea CLI: {exc}") from exc
-
+def parse_cli_parts(parts: Sequence[str], catalog: Catalog) -> CliParseResult:
     if len(parts) < 3:
         raise CliParseError("La línea CLI debe contener al menos comando, entrada y salida.")
 
     command, *rest = parts
-    if "ebook-convert" not in command:
+    if command != "ebook-convert":
         raise CliParseError("Solo se admiten comandos ebook-convert.")
 
     input_token = rest.pop(0)
@@ -120,6 +121,43 @@ def parse_cli_command(cli_line: str, catalog: Catalog) -> CliParseResult:
         output_path=output_path,
         options=options,
     )
+
+
+def parse_cli_command(cli_line: str, catalog: Catalog) -> CliParseResult:
+    """Parse a full ebook-convert command line."""
+    results = parse_cli_commands(cli_line, catalog)
+    if len(results) != 1:
+        raise CliParseError("Se encontraron varios comandos; ingresa solo uno.")
+    return results[0]
+
+
+def parse_cli_commands(cli_block: str, catalog: Catalog) -> List[CliParseResult]:
+    try:
+        tokens = shlex.split(cli_block, comments=False, posix=True)
+    except ValueError as exc:
+        raise CliParseError(f"No se pudo tokenizar la línea CLI: {exc}") from exc
+
+    if not tokens:
+        raise CliParseError("Ingresa al menos un comando ebook-convert.")
+
+    groups: List[List[str]] = []
+    current: List[str] = []
+    for token in tokens:
+        if token == "ebook-convert":
+            if current:
+                groups.append(current)
+            current = [token]
+        else:
+            if not current:
+                raise CliParseError("Se encontraron argumentos antes de 'ebook-convert'.")
+            current.append(token)
+    if current:
+        groups.append(current)
+
+    if not groups:
+        raise CliParseError("Ingresa al menos un comando ebook-convert.")
+
+    return [parse_cli_parts(group, catalog) for group in groups]
 
 
 def tab_configuration_from_cli(cli_line: str, catalog: Catalog, *, tab_id: str, title: Optional[str] = None) -> TabConfiguration:

@@ -17,7 +17,13 @@ from app.forms import ConfigForm
 from app.html_viewer import HtmlViewer
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
-from core.runner.cli_parser import CliParseError, tab_configuration_from_cli
+from core.runner.cli_parser import (
+    CliParseError,
+    CliParseResult,
+    parse_cli_commands,
+    tab_configuration_from_cli,
+)
+from core.runner.cli_parser import CliParseError, parse_cli_parts
 from core.runner.epub import ConversionError, ConversionResult, run_epub
 from core.runner.preview import PreviewError, PreviewResult, run_preview
 
@@ -103,15 +109,34 @@ class ConfigNotebook(ttk.Frame):
         if not line:
             return None
 
-        tab_id = self._generate_tab_id()
         try:
-            config = tab_configuration_from_cli(line, self.catalog, tab_id=tab_id)
+            results = parse_cli_commands(line, self.catalog)
         except CliParseError as exc:
             self._error_handler(str(exc))
             return None
 
+        created_tabs: List[str] = []
+        for result in results:
+            config = self._configuration_from_cli(result)
+            widget_id = self._add_tab(config)
+            created_tabs.append(widget_id)
+
+        if not created_tabs:
+            return None
+        return created_tabs[-1]
+
+    def _configuration_from_cli(self, result: CliParseResult) -> TabConfiguration:
+        tab_id = self._generate_tab_id()
+        title = result.output_path.stem or tab_id
+        config = TabConfiguration(
+            tab_id=tab_id,
+            title=title,
+            input_pdf=result.input_path,
+            output_epub=result.output_path,
+            options=result.options,
+        )
         config.title = self._ensure_unique_title(config.title)
-        return self._add_tab(config)
+        return config
 
     def export_current_tab(self) -> Optional[Path]:
         tab_id = self._current_tab_id()

@@ -13,8 +13,7 @@
 - [x] Visor HTML: integra tkinterweb (o cefpython3 si prefieres Chromium). Carga el HTML del spine; soporta recarga rápida.
 - [x] Botón “Generar EPUB”: ejecuta ebook-convert IN.pdf OUT.epub con los mismos flags. Pregunta destino y escribe solo a demanda.
 - [x] Botón “Exportar OEB”: opcional para inspección avanzada.
-- [ ] Importar línea CLI: parsea una cadena ebook-convert entrada salida [opciones] y vuelca flags al formulario.
-- [ ] Presets: crea perfiles rápidos por dispositivo (--output-profile) y por “PDF técnico 1-columna”, “con fórmulas”, etc.
+- [x] Importar línea CLI: parsea una cadena ebook-convert entrada salida [opciones] y vuelca flags al formulario.
+- [ ] Presets: crea perfiles rápidos por dispositivo (--output-profile) y por “PDF técnico 1-columna”, “con fórmulas”, etc. Permite guardar perfiles que no son esos predeterminados.
 - [ ] Barra de estado: tiempo de ejecución, warnings detectados, tamaño resultante.
-- [ ] Tests de humo: tres PDFs muestra. Casos: con/ sin TOC, con tablas, con fórmulas.
 - [ ] Empaquetado: script run.py, requisitos, y documentación rápida.

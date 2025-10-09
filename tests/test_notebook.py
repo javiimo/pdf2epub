@@ -112,6 +112,26 @@ def test_import_cli_line_reports_errors(root, prompts):
     assert prompts.errors
 
 
+def test_import_cli_line_supports_multiple_commands(root, prompts):
+    prompts.cli_values.append(
+        "\n".join([
+            "ebook-convert in1.pdf out1.epub --verbose",
+            "ebook-convert in2.pdf out2.epub --base-font-size 14",
+        ])
+    )
+    notebook = build_notebook(root, prompts)
+
+    tabs_before = len(notebook.notebook.tabs())
+    notebook.import_cli_line()
+    tabs_after = len(notebook.notebook.tabs())
+
+    assert tabs_after == tabs_before + 2
+
+    configs = list(notebook.configurations())
+    assert any((cfg.input_pdf and cfg.input_pdf.name == "in1.pdf") for cfg in configs)
+    assert any(cfg.options.get("base-font-size") == "14" for cfg in configs)
+
+
 def test_export_current_tab_writes_configuration(tmp_path, root, prompts):
     prompts.export_path = tmp_path / "config.json"
     notebook = build_notebook(root, prompts)
