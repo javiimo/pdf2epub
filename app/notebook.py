@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import shlex
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -15,6 +16,7 @@ from app.forms import ConfigForm
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
 from core.runner.cli_parser import CliParseError, tab_configuration_from_cli
+from core.runner.preview import PreviewError, PreviewResult, run_preview
 
 CliPrompt = Callable[[], Optional[str]]
 ExportPrompt = Callable[[TabConfiguration], Optional[str]]
@@ -32,6 +34,7 @@ class ConfigNotebook(ttk.Frame):
         cli_prompt: Optional[CliPrompt] = None,
         export_prompt: Optional[ExportPrompt] = None,
         error_handler: Optional[ErrorHandler] = None,
+        preview_runner: Optional[Callable[[TabConfiguration], PreviewResult]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -53,6 +56,9 @@ class ConfigNotebook(ttk.Frame):
         self._config_by_tab: Dict[str, TabConfiguration] = {}
         self._summary_labels: Dict[str, ttk.Label] = {}
         self._forms: Dict[str, ConfigForm] = {}
+        self._console_widgets: Dict[str, tk.Text] = {}
+        self._preview_state: Dict[str, PreviewResult] = {}
+        self._preview_runner = preview_runner or (lambda config: run_preview(config, catalog=self.catalog))
         self._input_controls: Dict[str, Dict[str, Any]] = {}
         self._tab_counter = 1
 
@@ -149,6 +155,7 @@ class ConfigNotebook(ttk.Frame):
             ("Clonar", self.clone_current_tab),
             ("Importar línea CLI", self.import_cli_line),
             ("Exportar", self.export_current_tab),
+            ("Previsualizar", self.preview_current_tab),
         ]
 
         for idx, (label, command) in enumerate(buttons):
@@ -158,7 +165,8 @@ class ConfigNotebook(ttk.Frame):
 
     def _add_tab(self, config: TabConfiguration) -> str:
         widget = ttk.Frame(self.notebook)
-        widget.columnconfigure(0, weight=1)
+        widget.columnconfigure(0, weight=3)
+        widget.columnconfigure(1, weight=2)
         widget.rowconfigure(2, weight=1)
 
         tab_widget_id = str(widget)
@@ -170,9 +178,10 @@ class ConfigNotebook(ttk.Frame):
             justify="left",
             anchor="nw",
         )
-        summary.grid(row=0, column=0, sticky="ew")
+        summary.grid(row=0, column=0, columnspan=2, sticky="ew")
 
         self._create_input_controls(widget, config, tab_widget_id)
+        self._create_console(widget, tab_widget_id)
 
         form = ConfigForm(
             widget,
@@ -180,7 +189,7 @@ class ConfigNotebook(ttk.Frame):
             config=config,
             on_change=lambda option_id: self._handle_form_change(tab_widget_id, option_id),
         )
-        form.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        form.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 12))
 
         self.notebook.add(widget, text=config.title)
         self._config_by_tab[tab_widget_id] = config
@@ -217,7 +226,7 @@ class ConfigNotebook(ttk.Frame):
         tab_widget_id: str,
     ) -> None:
         frame = ttk.LabelFrame(parent, text="Entrada PDF")
-        frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
+        frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 12))
         frame.columnconfigure(1, weight=1)
 
         path_var = tk.StringVar(value=str(config.input_pdf or ""))
@@ -268,6 +277,95 @@ class ConfigNotebook(ttk.Frame):
             controls["page_var"].set(page_value)
         finally:
             controls["suspend"] = False
+
+    def _create_console(self, parent: ttk.Frame, tab_widget_id: str) -> None:
+        frame = ttk.LabelFrame(parent, text="Consola")
+        frame.grid(row=2, column=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        console = tk.Text(frame, wrap="word", height=12, state="disabled")
+        console.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=console.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        console.configure(yscrollcommand=scrollbar.set)
+
+        self._console_widgets[tab_widget_id] = console
+
+    def _append_console(self, tab_widget_id: str, message: str, *, clear: bool = False) -> None:
+        console = self._console_widgets.get(tab_widget_id)
+        if console is None:
+            return
+        console.configure(state="normal")
+        if clear:
+            console.delete("1.0", tk.END)
+        if message:
+            console.insert(tk.END, message)
+            if not message.endswith("\n"):
+                console.insert(tk.END, "\n")
+        console.see(tk.END)
+        console.configure(state="disabled")
+
+    def _cleanup_preview_state(self, tab_widget_id: str) -> None:
+        state = self._preview_state.pop(tab_widget_id, None)
+        if not state:
+            return
+        workspace = getattr(state, "workspace", None)
+        if workspace is not None and hasattr(workspace, "cleanup"):
+            try:
+                workspace.cleanup()
+            except Exception:
+                # Silently ignore workspace cleanup issues in the UI layer.
+                pass
+
+    def _format_command(self, command: Iterable[str]) -> str:
+        return " ".join(shlex.quote(str(part)) for part in command)
+
+    def _render_stream(self, label: str, content: str) -> str:
+        stripped = content.strip()
+        if not stripped:
+            return f"{label}: <vacío>"
+        return f"{label}:\n{stripped}"
+
+    def _format_preview_success(self, result: PreviewResult) -> str:
+        pieces = [
+            "[OK] Previsualización completada.",
+            f"Comando: {self._format_command(result.command)}",
+            f"OEB generado en: {result.oeb_output}",
+            self._render_stream("stdout", result.stdout),
+            self._render_stream("stderr", result.stderr),
+        ]
+        return "\n\n".join(pieces)
+
+    def _format_preview_error(self, error: PreviewError) -> str:
+        command = error.command or []
+        pieces = [
+            f"[ERROR] {error}",
+            f"Comando: {self._format_command(command) if command else '<no ejecutado>'}",
+            self._render_stream("stdout", error.stdout),
+            self._render_stream("stderr", error.stderr),
+        ]
+        return "\n\n".join(pieces)
+
+    def preview_current_tab(self) -> None:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para previsualizar.")
+            return
+
+        config = self._config_by_tab[tab_id]
+        self._append_console(tab_id, "Ejecutando previsualización…", clear=True)
+
+        try:
+            result = self._preview_runner(config)
+        except PreviewError as exc:
+            self._append_console(tab_id, self._format_preview_error(exc), clear=True)
+            self._error_handler(str(exc))
+            return
+
+        self._cleanup_preview_state(tab_id)
+        self._preview_state[tab_id] = result
+        self._append_console(tab_id, self._format_preview_success(result), clear=True)
 
     def _on_input_pdf_changed(self, tab_widget_id: str) -> None:
         controls = self._input_controls.get(tab_widget_id)
@@ -354,3 +452,8 @@ class ConfigNotebook(ttk.Frame):
 
     def _default_error_handler(self, message: str) -> None:  # pragma: no cover - UI helper
         messagebox.showerror("Error", message, parent=self.winfo_toplevel())
+
+    def destroy(self) -> None:  # pragma: no cover - UI lifecycle
+        for tab_id in list(self._preview_state.keys()):
+            self._cleanup_preview_state(tab_id)
+        super().destroy()

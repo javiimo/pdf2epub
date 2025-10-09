@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import tkinter as tk
@@ -7,6 +8,7 @@ import tkinter as tk
 from app.notebook import ConfigNotebook
 from core.configuration import TabConfiguration
 from core.options.catalog import get_catalog
+from core.runner.preview import PreviewError, PreviewResult
 
 
 @pytest.fixture
@@ -42,13 +44,14 @@ def prompts():
     return PromptHelper()
 
 
-def build_notebook(root, prompts):
+def build_notebook(root, prompts, preview_runner=None):
     widget = ConfigNotebook(
         root,
         catalog=get_catalog(),
         cli_prompt=prompts.cli_prompt,
         export_prompt=prompts.export_prompt,
         error_handler=prompts.error_handler,
+        preview_runner=preview_runner,
     )
     root.update_idletasks()
     return widget
@@ -142,6 +145,125 @@ def test_boolean_option_toggle_updates_configuration(root, prompts):
     root.update_idletasks()
     config = notebook.current_configuration()
     assert config.options["enable-heuristics"] is True
+
+
+def test_preview_without_input_shows_error(root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+
+    notebook.preview_current_tab()
+    root.update_idletasks()
+
+    assert prompts.errors
+    console = notebook._console_widgets[tab_id]
+    text = console.get("1.0", tk.END)
+    assert "[ERROR]" in text
+
+
+def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
+    cleanup_calls: list[str] = []
+
+    def make_workspace(label: str):
+        path = tmp_path / label
+        path.mkdir()
+
+        def cleanup():
+            cleanup_calls.append(label)
+
+        return SimpleNamespace(path=path, cleanup=cleanup)
+
+    def preview_runner(config: TabConfiguration) -> PreviewResult:
+        return PreviewResult(
+            workspace=make_workspace("ws1"),
+            command=["ebook-convert", "input.pdf", "output"],
+            oeb_output=tmp_path / "oeb-dir",
+            subset_pdf=tmp_path / "subset.pdf",
+            stdout="todo bien",
+            stderr="",
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "book.pdf"
+
+    notebook.preview_current_tab()
+    root.update_idletasks()
+
+    console = notebook._console_widgets[tab_id]
+    text = console.get("1.0", tk.END)
+    assert "[OK]" in text
+    assert "todo bien" in text
+    assert notebook._preview_state[tab_id].oeb_output == tmp_path / "oeb-dir"
+    assert cleanup_calls == []
+
+
+def test_preview_replaces_previous_workspace(tmp_path, root, prompts):
+    cleanup_calls: list[str] = []
+
+    def make_result(label: str) -> PreviewResult:
+        path = tmp_path / label
+        path.mkdir()
+
+        def cleanup():
+            cleanup_calls.append(label)
+
+        workspace = SimpleNamespace(path=path, cleanup=cleanup)
+        return PreviewResult(
+            workspace=workspace,
+            command=["ebook-convert", "input.pdf", label],
+            oeb_output=tmp_path / f"{label}-oeb",
+            subset_pdf=tmp_path / f"{label}-subset.pdf",
+            stdout=label,
+            stderr="",
+        )
+
+    results = [make_result("ws1"), make_result("ws2")]
+
+    def preview_runner(config: TabConfiguration) -> PreviewResult:
+        return results.pop(0)
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+
+    notebook.preview_current_tab()
+    root.update_idletasks()
+    assert cleanup_calls == []
+
+    notebook.preview_current_tab()
+    root.update_idletasks()
+    assert cleanup_calls == ["ws1"]
+    assert notebook._preview_state[tab_id].workspace.path == tmp_path / "ws2"
+
+
+def test_preview_failure_shows_console(tmp_path, root, prompts):
+    def preview_runner(config: TabConfiguration):
+        raise PreviewError(
+            "Falló",
+            command=["ebook-convert", "input.pdf", "output"],
+            stdout="stdout msg",
+            stderr="stderr msg",
+            returncode=1,
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+
+    notebook.preview_current_tab()
+    root.update_idletasks()
+
+    assert prompts.errors
+    console = notebook._console_widgets[tab_id]
+    text = console.get("1.0", tk.END)
+    assert "[ERROR]" in text
+    assert "stderr msg" in text
 
 
 def test_pdf_selector_updates_configuration(tmp_path, root, prompts):
