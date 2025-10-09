@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import shlex
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -164,6 +165,7 @@ class ConfigNotebook(ttk.Frame):
             ("Exportar", self.export_current_tab),
             ("Previsualizar", self.preview_current_tab),
             ("Generar EPUB", self.generate_epub),
+            ("Exportar OEB", self.export_oeb),
         ]
 
         for idx, (label, command) in enumerate(buttons):
@@ -407,6 +409,19 @@ class ConfigNotebook(ttk.Frame):
             parent=self.winfo_toplevel(),
         )
 
+    def _ask_oeb_directory(self, config: TabConfiguration) -> Optional[str]:  # pragma: no cover - UI helper
+        initialdir = None
+        if config.output_epub:
+            initialdir = str(config.output_epub.parent)
+        elif config.input_pdf:
+            initialdir = str(Path(config.input_pdf).parent)
+        return filedialog.askdirectory(
+            mustexist=False,
+            initialdir=initialdir,
+            title="Selecciona directorio para exportar el OEB",
+            parent=self.winfo_toplevel(),
+        )
+
     def preview_current_tab(self) -> None:
         tab_id = self._current_tab_id()
         if tab_id is None:
@@ -459,6 +474,57 @@ class ConfigNotebook(ttk.Frame):
             return
 
         self._append_console(tab_id, self._format_conversion_success(result))
+
+    def export_oeb(self) -> None:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para exportar el OEB.")
+            return
+
+        config = self._config_by_tab[tab_id]
+        if not config.input_pdf:
+            self._error_handler("Selecciona primero un PDF de entrada para exportar el OEB.")
+            return
+
+        result = self._preview_state.get(tab_id)
+        if result is None:
+            self.preview_current_tab()
+            result = self._preview_state.get(tab_id)
+            if result is None:
+                return
+
+        target = self._ask_oeb_directory(config)
+        if not target:
+            return
+
+        export_dir = Path(target)
+        source_dir = result.oeb_output
+        if export_dir.resolve() == source_dir.resolve():
+            self._error_handler("El directorio destino no puede ser el mismo que el origen.")
+            self._append_console(tab_id, "[ERROR] Directorio destino inválido.")
+            return
+
+        if export_dir.exists():
+            if not export_dir.is_dir():
+                self._error_handler("El destino seleccionado no es un directorio.")
+                self._append_console(tab_id, "[ERROR] El destino seleccionado no es un directorio.")
+                return
+            if any(export_dir.iterdir()):
+                self._error_handler("El directorio destino debe estar vacío.")
+                self._append_console(tab_id, "[ERROR] El directorio destino debe estar vacío.")
+                return
+        else:
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+        self._append_console(tab_id, f"Exportando OEB a {export_dir}…")
+        try:
+            shutil.copytree(source_dir, export_dir, dirs_exist_ok=True)
+        except OSError as exc:
+            self._append_console(tab_id, f"[ERROR] No se pudo exportar el OEB: {exc}")
+            self._error_handler(f"No se pudo exportar el OEB: {exc}")
+            return
+
+        self._append_console(tab_id, f"[OK] OEB exportado en: {export_dir}")
 
     def reload_preview(self, tab_widget_id: Optional[str] = None) -> None:
         tab_id = tab_widget_id or self._current_tab_id()

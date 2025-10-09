@@ -12,7 +12,7 @@
 - [x] Parser OPF: abre content.opf en OUT_DIR_OEB, lee el spine y determina el primer HTML a mostrar.
 - [x] Visor HTML: integra tkinterweb (o cefpython3 si prefieres Chromium). Carga el HTML del spine; soporta recarga rápida.
 - [x] Botón “Generar EPUB”: ejecuta ebook-convert IN.pdf OUT.epub con los mismos flags. Pregunta destino y escribe solo a demanda.
-- [ ] Botón “Exportar OEB”: opcional para inspección avanzada.
+- [x] Botón “Exportar OEB”: opcional para inspección avanzada.
 - [ ] Importar línea CLI: parsea una cadena ebook-convert entrada salida [opciones] y vuelca flags al formulario.
 - [ ] Presets: crea perfiles rápidos por dispositivo (--output-profile) y por “PDF técnico 1-columna”, “con fórmulas”, etc.
 - [ ] Barra de estado: tiempo de ejecución, warnings detectados, tamaño resultante.

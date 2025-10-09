@@ -418,6 +418,126 @@ def test_reload_without_preview_reports_error(root, prompts):
     assert prompts.errors
 
 
+def test_export_oeb_writes_directory(tmp_path, root, prompts):
+    oeb_dir = tmp_path / "oeb"
+    oeb_dir.mkdir()
+    html = oeb_dir / "index.xhtml"
+    html.write_text("<html/>", encoding="utf-8")
+
+    def preview_runner(config: TabConfiguration) -> PreviewResult:
+        path = tmp_path / "ws"
+        path.mkdir()
+        return PreviewResult(
+            workspace=SimpleNamespace(path=path, cleanup=lambda: None),
+            command=["ebook-convert", "input.pdf", "preview-oeb"],
+            oeb_output=oeb_dir,
+            subset_pdf=tmp_path / "subset.pdf",
+            stdout="ready",
+            stderr="",
+            spine_first_html=html,
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+
+    notebook.preview_current_tab()
+    root.update_idletasks()
+
+    export_dir = tmp_path / "exported-oeb"
+    notebook._ask_oeb_directory = lambda _: str(export_dir)
+
+    notebook.export_oeb()
+    root.update_idletasks()
+
+    assert (export_dir / "index.xhtml").exists()
+    console = notebook._console_widgets[tab_id]
+    text = console.get("1.0", tk.END)
+    assert "OEB exportado" in text
+
+
+def test_export_oeb_runs_preview_when_missing(tmp_path, root, prompts):
+    calls: list[str] = []
+
+    def preview_runner(config: TabConfiguration) -> PreviewResult:
+        calls.append("preview")
+        oeb_dir = tmp_path / "pre"
+        oeb_dir.mkdir()
+        html = oeb_dir / "page.xhtml"
+        html.write_text("<html/>", encoding="utf-8")
+        return PreviewResult(
+            workspace=SimpleNamespace(path=tmp_path / "ws", cleanup=lambda: None),
+            command=["ebook-convert", "input.pdf", "preview-oeb"],
+            oeb_output=oeb_dir,
+            subset_pdf=tmp_path / "subset.pdf",
+            stdout="ok",
+            stderr="",
+            spine_first_html=html,
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+
+    export_dir = tmp_path / "dest"
+    notebook._ask_oeb_directory = lambda _: str(export_dir)
+
+    notebook.export_oeb()
+    root.update_idletasks()
+
+    assert calls == ["preview"]
+    assert (export_dir / "page.xhtml").exists()
+
+
+def test_export_oeb_requires_empty_directory(tmp_path, root, prompts):
+    oeb_dir = tmp_path / "oeb"
+    oeb_dir.mkdir()
+    (oeb_dir / "file.xhtml").write_text("<html/>", encoding="utf-8")
+
+    def preview_runner(config: TabConfiguration) -> PreviewResult:
+        return PreviewResult(
+            workspace=SimpleNamespace(path=tmp_path / "ws", cleanup=lambda: None),
+            command=["ebook-convert", "input.pdf", "preview-oeb"],
+            oeb_output=oeb_dir,
+            subset_pdf=tmp_path / "subset.pdf",
+            stdout="ok",
+            stderr="",
+            spine_first_html=oeb_dir / "file.xhtml",
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+    notebook.preview_current_tab()
+    root.update_idletasks()
+
+    export_dir = tmp_path / "dest"
+    export_dir.mkdir()
+    (export_dir / "existing.txt").write_text("x", encoding="utf-8")
+    notebook._ask_oeb_directory = lambda _: str(export_dir)
+
+    notebook.export_oeb()
+    root.update_idletasks()
+
+    assert prompts.errors
+    console = notebook._console_widgets[tab_id]
+    assert "directorio destino" in console.get("1.0", tk.END).lower()
+
+
+def test_export_oeb_requires_input(root, prompts):
+    notebook = build_notebook(root, prompts)
+    notebook.export_oeb()
+    assert prompts.errors
+
+
 def test_pdf_selector_updates_configuration(tmp_path, root, prompts):
     notebook = build_notebook(root, prompts)
     tab_id = notebook.notebook.select()
