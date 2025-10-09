@@ -461,9 +461,16 @@ class ConfigNotebook(ttk.Frame):
             f"Comando: {self._format_command(result.command)}",
             f"OEB generado en: {result.oeb_output}",
             f"Primer HTML: {result.spine_first_html}",
-            self._render_stream("stdout", result.stdout),
-            self._render_stream("stderr", result.stderr),
         ]
+        if result.skipped_options:
+            skipped = ", ".join(sorted(result.skipped_options))
+            pieces.append(f"Opciones omitidas (no soportadas por ebook-convert): {skipped}")
+        pieces.extend(
+            [
+                self._render_stream("stdout", result.stdout),
+                self._render_stream("stderr", result.stderr),
+            ]
+        )
         return "\n\n".join(pieces)
 
     def _format_run_error(self, error: Any) -> str:
@@ -481,9 +488,16 @@ class ConfigNotebook(ttk.Frame):
             "[OK] EPUB generado.",
             f"Comando: {self._format_command(result.command)}",
             f"Archivo: {result.target}",
-            self._render_stream("stdout", result.stdout),
-            self._render_stream("stderr", result.stderr),
         ]
+        if result.skipped_options:
+            skipped = ", ".join(sorted(result.skipped_options))
+            pieces.append(f"Opciones omitidas (no soportadas por ebook-convert): {skipped}")
+        pieces.extend(
+            [
+                self._render_stream("stdout", result.stdout),
+                self._render_stream("stderr", result.stderr),
+            ]
+        )
         return "\n\n".join(pieces)
 
     def _ask_output_epub(self, config: TabConfiguration) -> Optional[str]:  # pragma: no cover - UI helper
@@ -575,10 +589,10 @@ class ConfigNotebook(ttk.Frame):
         duration = time.perf_counter() - start
         warnings = self._count_warnings(result.stdout, result.stderr)
         size = self._format_size(self._directory_size(result.oeb_output))
-        self._update_status(
-            tab_id,
-            f"Previsualización en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}",
-        )
+        status = f"Previsualización en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}"
+        if result.skipped_options:
+            status += f" · Opciones omitidas: {len(result.skipped_options)}"
+        self._update_status(tab_id, status)
 
     def generate_epub(self) -> None:
         tab_id = self._current_tab_id()
@@ -614,10 +628,10 @@ class ConfigNotebook(ttk.Frame):
         duration = time.perf_counter() - start
         warnings = self._count_warnings(result.stdout, result.stderr)
         size = self._format_size(result.target.stat().st_size)
-        self._update_status(
-            tab_id,
-            f"EPUB listo en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}",
-        )
+        status = f"EPUB listo en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}"
+        if result.skipped_options:
+            status += f" · Opciones omitidas: {len(result.skipped_options)}"
+        self._update_status(tab_id, status)
 
     def export_oeb(self) -> None:
         tab_id = self._current_tab_id()

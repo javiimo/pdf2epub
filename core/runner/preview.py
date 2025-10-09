@@ -10,6 +10,7 @@ from typing import Callable, List, Optional, Sequence
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, get_catalog
 from core.parser import OpfParserError, find_first_spine_html
+from core.runner.cli_support import get_supported_flags
 from core.runner.options_cli import build_convert_command
 from core.runner.pdf_subset import PdfSubsetError, prepare_pdf_subset
 from core.runner.temp_manager import TemporaryWorkspace
@@ -32,6 +33,7 @@ class PreviewResult:
     stdout: str
     stderr: str
     spine_first_html: Path
+    skipped_options: Sequence[str] = ()
 
 
 class PreviewError(RuntimeError):
@@ -90,12 +92,16 @@ def run_preview(
         ) from exc
 
     oeb_output = workspace.path / "preview-oeb"
+    supported_flags = get_supported_flags(ebook_convert_path)
+    skipped: List[str] = []
     command = build_convert_command(
         ebook_convert_path,
         subset_pdf,
         oeb_output,
         config,
         active_catalog,
+        supported_flags=supported_flags,
+        skipped=skipped,
     )
 
     try:
@@ -158,4 +164,5 @@ def run_preview(
         stdout=stdout,
         stderr=stderr,
         spine_first_html=spine_first,
+        skipped_options=tuple(skipped),
     )

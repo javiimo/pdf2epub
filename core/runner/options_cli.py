@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, OptionMetadata
 
 __all__ = ["build_option_arguments", "build_convert_command"]
+
+_FORBIDDEN_FLAGS = {"--help", "-h"}
 
 
 def _normalize_items(config: TabConfiguration, catalog: Catalog) -> Iterable[Tuple[OptionMetadata, object]]:
@@ -70,10 +72,25 @@ def _option_to_args(metadata: OptionMetadata, value: object) -> Sequence[str]:
     return _coerce_scalar(metadata, value)
 
 
-def build_option_arguments(config: TabConfiguration, catalog: Catalog) -> List[str]:
+def build_option_arguments(
+    config: TabConfiguration,
+    catalog: Catalog,
+    *,
+    supported_flags: Optional[Set[str]] = None,
+    skipped: Optional[List[str]] = None,
+) -> List[str]:
     """Translate the configuration option map into CLI arguments."""
     args: List[str] = []
     for metadata, value in _normalize_items(config, catalog):
+        cli_flag = metadata.cli
+        if cli_flag in _FORBIDDEN_FLAGS:
+            if skipped is not None:
+                skipped.append(cli_flag)
+            continue
+        if supported_flags is not None and cli_flag not in supported_flags:
+            if skipped is not None:
+                skipped.append(cli_flag)
+            continue
         args.extend(_option_to_args(metadata, value))
     return args
 
@@ -84,7 +101,15 @@ def build_convert_command(
     output_path: Path,
     config: TabConfiguration,
     catalog: Catalog,
+    *,
+    supported_flags: Optional[Set[str]] = None,
+    skipped: Optional[List[str]] = None,
 ) -> List[str]:
     """Compose the full ebook-convert command line for the given config."""
     base = [executable, str(input_path), str(output_path)]
-    return base + build_option_arguments(config, catalog)
+    return base + build_option_arguments(
+        config,
+        catalog,
+        supported_flags=supported_flags,
+        skipped=skipped,
+    )

@@ -31,8 +31,8 @@ _PRESETS: List[Preset] = [
         category="device",
         options={
             "output-profile": "kindle_pw",
-            "base-font-size": "11",
-            "line-height": "1.3",
+            "base-font-size": "12",
+            "minimum-line-height": "1.30",
         },
     ),
     Preset(
@@ -43,7 +43,7 @@ _PRESETS: List[Preset] = [
         options={
             "output-profile": "kobo",
             "base-font-size": "12",
-            "line-height": "1.4",
+            "minimum-line-height": "1.25",
         },
     ),
     Preset(
@@ -54,7 +54,7 @@ _PRESETS: List[Preset] = [
         options={
             "output-profile": "tablet",
             "base-font-size": "14",
-            "line-height": "1.5",
+            "minimum-line-height": "1.20",
         },
     ),
     Preset(
@@ -65,7 +65,7 @@ _PRESETS: List[Preset] = [
         options={
             "enable-heuristics": True,
             "dont-split-on-page-breaks": True,
-            "line-height": "1.35",
+            "minimum-line-height": "1.35",
             "disable-remove-fake-margins": True,
         },
     ),
@@ -76,7 +76,7 @@ _PRESETS: List[Preset] = [
         category="pdf",
         options={
             "base-font-size": "15",
-            "line-height": "1.45",
+            "minimum-line-height": "1.30",
             "disable-heuristics": True,
             "keep-ligatures": True,
         },
@@ -92,5 +92,9 @@ def get_presets() -> List[Preset]:
 
 def apply_preset(options: Dict[str, object], preset: Preset) -> None:
     """Merge the preset options into the provided mapping."""
+
+    # Limpia flags heredadas que ya no son compatibles con los presets actuales.
+    for legacy_key in ("line-height",):
+        options.pop(legacy_key, None)
 
     options.update(preset.options)

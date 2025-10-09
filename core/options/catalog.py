@@ -44,6 +44,7 @@ class OptionMetadata:
     aliases: Tuple[str, ...] = ()
     notes: Optional[str] = None
     repeatable: bool = False
+    hidden: bool = False
 
     def all_cli_names(self) -> Tuple[str, ...]:
         """Return the primary CLI flag plus any aliases."""
@@ -74,7 +75,7 @@ class Catalog:
     def options_for_category(self, category_id: str) -> Iterable[OptionMetadata]:
         """Yield options that belong to a given category identifier."""
         for option in self.options.values():
-            if option.category == category_id:
+            if option.category == category_id and not option.hidden:
                 yield option
 
 
@@ -127,6 +128,7 @@ def _build_option(entry: Mapping[str, object], categories: Mapping[str, Category
     aliases = tuple(str(alias) for alias in aliases_raw)
 
     repeatable = bool(entry.get("repeatable", False))
+    hidden = bool(entry.get("hidden", False))
     notes = entry.get("notes")
     if notes is not None:
         notes = str(notes)
@@ -142,6 +144,7 @@ def _build_option(entry: Mapping[str, object], categories: Mapping[str, Category
         aliases=aliases,
         notes=notes,
         repeatable=repeatable,
+        hidden=hidden,
     )
 
 

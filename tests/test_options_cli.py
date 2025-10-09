@@ -43,3 +43,23 @@ def test_build_convert_command_combines_base_and_options():
 
     assert command[:3] == ["ebook-convert", "input.pdf", "output.epub"]
     assert command[3:] == ["--base-font-size", "13"]
+
+
+def test_build_option_arguments_skip_unsupported_flags():
+    catalog = get_catalog()
+    config = TabConfiguration(
+        tab_id="skip",
+        title="Skip",
+        options={"dont-split-on-page-breaks": True, "base-font-size": "11", "help": True},
+    )
+
+    skipped: list[str] = []
+    args = build_option_arguments(
+        config,
+        catalog,
+        supported_flags={"--base-font-size"},
+        skipped=skipped,
+    )
+
+    assert args == ["--base-font-size", "11"]
+    assert skipped == ["--dont-split-on-page-breaks", "--help"]

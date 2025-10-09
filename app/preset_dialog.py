@@ -46,7 +46,7 @@ class _PresetDialog(simpledialog.Dialog):
 
     def buttonbox(self):  # pragma: no cover - standard dialog controls
         box = ttk.Frame(self)
-        box.grid(row=3, column=0, columnspan=2, pady=8)
+        box.pack(side="bottom", pady=8)
 
         ok_button = ttk.Button(box, text="Aplicar", width=10, command=self.ok, default=tk.ACTIVE)
         ok_button.pack(side="left", padx=5)

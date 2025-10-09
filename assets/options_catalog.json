@@ -85,7 +85,8 @@
       "description": "Muestra la ayuda oficial de ebook-convert.",
       "category": "profiles",
       "depends_on": [],
-      "notes": "Generalmente se usa vía CLI directa, no desde la interfaz."
+      "notes": "Generalmente se usa vía CLI directa, no desde la interfaz.",
+      "hidden": true
     },
     {
       "id": "version",
@@ -251,11 +252,11 @@
     {
       "id": "line-height",
       "cli": "--line-height",
-      "value_type": "float",
+      "value_type": "integer",
       "domain": {
         "kind": "range",
-        "min": 0.8,
-        "max": 5.0,
+        "min": 6,
+        "max": 72,
         "units": "pt"
       },
       "description": "Fija interlineado absoluto en puntos.",
