@@ -1,0 +1,20 @@
+- [x] Inicializa repo y entorno. Estructura: app/ (UI), core/ (runner, parser, presets), tests/, assets/.
+- [ ] Verifica binarios: ebook-convert y qpdf en $PATH. Muestra alerta si faltan.
+- [ ] Módulo de opciones: define un “catálogo” JSON/YAML con metadatos de cada flag: nombre CLI, tipo, dominio de valores, descripción breve, categoría, dependencias.
+- [ ] Capa de serialización: carga/guarda una “configuración” por pestaña en JSON.
+- [ ] Motor temporal: usa tempfile.TemporaryDirectory(prefix="pdf2epub-"). Registra atexit y limpieza en arranque de restos del prefijo.
+- [ ] Pestañas con ttk.Notebook: cada pestaña = una configuración independiente. Botones “Nueva”, “Clonar”, “Importar línea CLI”, “Exportar”.
+- [ ] Formularios por categorías: Look & Feel, Heuristics, Search & Replace, Structure, TOC, Metadata, Debug, PDF Input, EPUB Output, Perfiles. Widgets con tooltips.
+- [ ] Validador de entradas: tipos numéricos, rutas, regex/XPath, enum. Señaliza dependencias (p.ej., mostrar disables de heuristics solo si --enable-heuristics).
+- [ ] Selector de archivo de entrada PDF y rango de páginas.
+- [ ] Subconjunto de páginas: si se define rango, invoca qpdf --pages IN N-M -- OUT.pdf en tmp antes de convertir.
+- [ ] Botón “Previsualizar”: ejecuta ebook-convert IN.pdf OUT_DIR_OEB (sin extensión) con flags de la pestaña; captura stdout/stderr en una consola lateral.
+- [ ] Parser OPF: abre content.opf en OUT_DIR_OEB, lee el spine y determina el primer HTML a mostrar.
+- [ ] Visor HTML: integra tkinterweb (o cefpython3 si prefieres Chromium). Carga el HTML del spine; soporta recarga rápida.
+- [ ] Botón “Generar EPUB”: ejecuta ebook-convert IN.pdf OUT.epub con los mismos flags. Pregunta destino y escribe solo a demanda.
+- [ ] Botón “Exportar OEB”: opcional para inspección avanzada.
+- [ ] Importar línea CLI: parsea una cadena ebook-convert entrada salida [opciones] y vuelca flags al formulario.
+- [ ] Presets: crea perfiles rápidos por dispositivo (--output-profile) y por “PDF técnico 1-columna”, “con fórmulas”, etc.
+- [ ] Barra de estado: tiempo de ejecución, warnings detectados, tamaño resultante.
+- [ ] Tests de humo: tres PDFs muestra. Casos: con/ sin TOC, con tablas, con fórmulas.
+- [ ] Empaquetado: script run.py, requisitos, y documentación rápida.
