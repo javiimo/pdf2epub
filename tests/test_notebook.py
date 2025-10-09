@@ -120,3 +120,80 @@ def test_export_current_tab_writes_configuration(tmp_path, root, prompts):
     data = json.loads(prompts.export_path.read_text(encoding="utf-8"))
     assert data["title"] == "Principal"
     assert data["tab_id"] == config.tab_id
+
+
+def test_form_changes_update_configuration(root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    form = notebook._forms[tab_id]
+    field = form.sections["look_and_feel"].fields["base-font-size"]
+    field.var.set("14")
+    root.update_idletasks()
+    config = notebook.current_configuration()
+    assert config.options["base-font-size"] == "14"
+
+
+def test_boolean_option_toggle_updates_configuration(root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    form = notebook._forms[tab_id]
+    field = form.sections["heuristics"].fields["enable-heuristics"]
+    field.widget.invoke()
+    root.update_idletasks()
+    config = notebook.current_configuration()
+    assert config.options["enable-heuristics"] is True
+
+
+def test_tooltip_text_available_for_fields(root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    form = notebook._forms[tab_id]
+    field = form.sections["debug"].fields["verbose"]
+    assert "verbosidad" in field.tooltip_text.lower()
+
+
+def test_dependency_blocks_option_until_parent_enabled(root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    form = notebook._forms[tab_id]
+    dependent = form.sections["heuristics"].fields["disable-dehyphenate"]
+    assert "Activa primero" in dependent.error_label.cget("text")
+    assert str(dependent.widget.cget("state")) == "disabled"
+
+    parent = form.sections["heuristics"].fields["enable-heuristics"]
+    parent.widget.invoke()
+    root.update_idletasks()
+
+    assert str(dependent.widget.cget("state")) == "normal"
+    assert "Activa primero" not in dependent.error_label.cget("text")
+
+
+def test_invalid_regex_shows_validation_error(root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    form = notebook._forms[tab_id]
+    field = form.sections["toc"].fields["toc-filter"]
+    field.var.set("[invalid")
+    root.update_idletasks()
+    assert "Expresión regular inválida" in field.error_label.cget("text")
+    field.var.set("chapter")
+    root.update_idletasks()
+    assert field.error_label.cget("text") == ""
+
+
+def test_path_validator_requires_existing_dir(tmp_path, root, prompts):
+    notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    form = notebook._forms[tab_id]
+    field = form.sections["debug"].fields["debug-pipeline"]
+
+    missing = tmp_path / "missing-dir"
+    field.var.set(str(missing))
+    root.update_idletasks()
+    assert "directorio" in field.error_label.cget("text").lower()
+
+    valid = tmp_path / "existing-dir"
+    valid.mkdir()
+    field.var.set(str(valid))
+    root.update_idletasks()
+    assert field.error_label.cget("text") == ""

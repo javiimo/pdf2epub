@@ -11,6 +11,7 @@ from uuid import uuid4
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from app.forms import ConfigForm
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
 from core.runner.cli_parser import CliParseError, tab_configuration_from_cli
@@ -51,6 +52,7 @@ class ConfigNotebook(ttk.Frame):
 
         self._config_by_tab: Dict[str, TabConfiguration] = {}
         self._summary_labels: Dict[str, ttk.Label] = {}
+        self._forms: Dict[str, ConfigForm] = {}
         self._tab_counter = 1
 
         self._build_toolbar()
@@ -130,6 +132,12 @@ class ConfigNotebook(ttk.Frame):
         self.notebook.tab(tab_widget_id, text=config.title)
         label = self._summary_labels[tab_widget_id]
         label.configure(text=self._format_summary(config))
+        self._forms[tab_widget_id].sync_from_config()
+
+    def _handle_form_change(self, tab_widget_id: str, option_id: str) -> None:
+        config = self._config_by_tab[tab_widget_id]
+        summary = self._summary_labels[tab_widget_id]
+        summary.configure(text=self._format_summary(config))
 
     # -- Internal helpers ----------------------------------------------
 
@@ -148,6 +156,9 @@ class ConfigNotebook(ttk.Frame):
 
     def _add_tab(self, config: TabConfiguration) -> str:
         widget = ttk.Frame(self.notebook)
+        widget.columnconfigure(0, weight=1)
+        widget.rowconfigure(1, weight=1)
+
         summary = ttk.Label(
             widget,
             text=self._format_summary(config),
@@ -155,12 +166,21 @@ class ConfigNotebook(ttk.Frame):
             justify="left",
             anchor="nw",
         )
-        summary.pack(fill="both", expand=True)
+        summary.grid(row=0, column=0, sticky="ew")
 
         tab_widget_id = str(widget)
+        form = ConfigForm(
+            widget,
+            catalog=self.catalog,
+            config=config,
+            on_change=lambda option_id: self._handle_form_change(tab_widget_id, option_id),
+        )
+        form.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+
         self.notebook.add(widget, text=config.title)
         self._config_by_tab[tab_widget_id] = config
         self._summary_labels[tab_widget_id] = summary
+        self._forms[tab_widget_id] = form
         self.notebook.select(widget)
         return tab_widget_id
 
