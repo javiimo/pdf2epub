@@ -7,7 +7,7 @@
 - [x] Formularios por categorías: Look & Feel, Heuristics, Search & Replace, Structure, TOC, Metadata, Debug, PDF Input, EPUB Output, Perfiles. Widgets con tooltips.
 - [x] Validador de entradas: tipos numéricos, rutas, regex/XPath, enum. Señaliza dependencias (p.ej., mostrar disables de heuristics solo si --enable-heuristics).
 - [x] Selector de archivo de entrada PDF y rango de páginas.
-- [ ] Subconjunto de páginas: si se define rango, invoca qpdf --pages IN N-M -- OUT.pdf en tmp antes de convertir.
+- [x] Subconjunto de páginas: si se define rango, invoca qpdf --pages IN N-M -- OUT.pdf en tmp antes de convertir.
 - [ ] Botón “Previsualizar”: ejecuta ebook-convert IN.pdf OUT_DIR_OEB (sin extensión) con flags de la pestaña; captura stdout/stderr en una consola lateral.
 - [ ] Parser OPF: abre content.opf en OUT_DIR_OEB, lee el spine y determina el primer HTML a mostrar.
 - [ ] Visor HTML: integra tkinterweb (o cefpython3 si prefieres Chromium). Carga el HTML del spine; soporta recarga rápida.
