@@ -16,4 +16,4 @@
 - [x] Importar línea CLI: parsea una cadena ebook-convert entrada salida [opciones] y vuelca flags al formulario.
 - [x] Presets: crea perfiles rápidos por dispositivo (--output-profile) y por “PDF técnico 1-columna”, “con fórmulas”, etc. Permite guardar perfiles que no son esos predeterminados.
 - [x] Barra de estado: tiempo de ejecución, warnings detectados, tamaño resultante.
-- [ ] Empaquetado: script run.py, requisitos, y documentación rápida.
+- [x] Empaquetado: script run.py, requisitos, y documentación rápida.
