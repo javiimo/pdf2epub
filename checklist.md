@@ -3,7 +3,7 @@
 - [x] Módulo de opciones: define un “catálogo” JSON/YAML con metadatos de cada flag: nombre CLI, tipo, dominio de valores, descripción breve, categoría, dependencias.
 - [x] Capa de serialización: carga/guarda una “configuración” por pestaña en JSON.
 - [x] Motor temporal: usa tempfile.TemporaryDirectory(prefix="pdf2epub-"). Registra atexit y limpieza en arranque de restos del prefijo.
-- [ ] Pestañas con ttk.Notebook: cada pestaña = una configuración independiente. Botones “Nueva”, “Clonar”, “Importar línea CLI”, “Exportar”.
+- [x] Pestañas con ttk.Notebook: cada pestaña = una configuración independiente. Botones “Nueva”, “Clonar”, “Importar línea CLI”, “Exportar”.
 - [ ] Formularios por categorías: Look & Feel, Heuristics, Search & Replace, Structure, TOC, Metadata, Debug, PDF Input, EPUB Output, Perfiles. Widgets con tooltips.
 - [ ] Validador de entradas: tipos numéricos, rutas, regex/XPath, enum. Señaliza dependencias (p.ej., mostrar disables de heuristics solo si --enable-heuristics).
 - [ ] Selector de archivo de entrada PDF y rango de páginas.
