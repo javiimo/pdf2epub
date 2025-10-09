@@ -1,3 +1,5 @@
 """Execution engine for ebook-convert and auxiliary tools."""
 
-# This module will manage subprocess calls and pipeline orchestration.
+from .dependencies import MissingDependencyError, verify_required_binaries
+
+__all__ = ["MissingDependencyError", "verify_required_binaries"]
