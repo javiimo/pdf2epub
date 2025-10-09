@@ -1,6 +1,6 @@
 - [x] Inicializa repo y entorno. Estructura: app/ (UI), core/ (runner, parser, presets), tests/, assets/.
-- [ ] Verifica binarios: ebook-convert y qpdf en $PATH. Muestra alerta si faltan.
-- [ ] Módulo de opciones: define un “catálogo” JSON/YAML con metadatos de cada flag: nombre CLI, tipo, dominio de valores, descripción breve, categoría, dependencias.
+- [x] Verifica binarios: ebook-convert y qpdf en $PATH. Muestra alerta si faltan.
+- [x] Módulo de opciones: define un “catálogo” JSON/YAML con metadatos de cada flag: nombre CLI, tipo, dominio de valores, descripción breve, categoría, dependencias.
 - [ ] Capa de serialización: carga/guarda una “configuración” por pestaña en JSON.
 - [ ] Motor temporal: usa tempfile.TemporaryDirectory(prefix="pdf2epub-"). Registra atexit y limpieza en arranque de restos del prefijo.
 - [ ] Pestañas con ttk.Notebook: cada pestaña = una configuración independiente. Botones “Nueva”, “Clonar”, “Importar línea CLI”, “Exportar”.

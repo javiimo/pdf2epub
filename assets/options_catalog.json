@@ -1,0 +1,1324 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "profiles",
+      "label": "Comunes / Perfiles",
+      "description": "Opciones globales y perfiles prediseñados ofrecidos por calibre."
+    },
+    {
+      "id": "look_and_feel",
+      "label": "Look & Feel",
+      "description": "Tipografías, espaciado y transformaciones CSS/HTML."
+    },
+    {
+      "id": "heuristics",
+      "label": "Heuristics",
+      "description": "Ajustes del motor heurístico de limpieza de calibre."
+    },
+    {
+      "id": "search_replace",
+      "label": "Search & Replace",
+      "description": "Reglas de búsqueda y reemplazo con soporte regex."
+    },
+    {
+      "id": "structure",
+      "label": "Structure Detection",
+      "description": "Detección de capítulos, portadas y punto de inicio."
+    },
+    {
+      "id": "toc",
+      "label": "Table of Contents",
+      "description": "Generación y ajuste de tabla de contenidos."
+    },
+    {
+      "id": "metadata",
+      "label": "Metadata",
+      "description": "Campos de metadatos para el EPUB resultante."
+    },
+    {
+      "id": "debug",
+      "label": "Debug",
+      "description": "Herramientas de depuración y verbosidad."
+    },
+    {
+      "id": "pdf_input",
+      "label": "PDF Input",
+      "description": "Controla la interpretación del PDF de entrada."
+    },
+    {
+      "id": "epub_output",
+      "label": "EPUB Output",
+      "description": "Parámetros específicos de la generación EPUB/OEB."
+    }
+  ],
+  "options": [
+    {
+      "id": "input-profile",
+      "cli": "--input-profile",
+      "value_type": "enum",
+      "domain": {
+        "kind": "enum",
+        "source": "calibre_input_profiles"
+      },
+      "description": "Perfil que describe las características del documento PDF de entrada.",
+      "category": "profiles",
+      "depends_on": []
+    },
+    {
+      "id": "output-profile",
+      "cli": "--output-profile",
+      "value_type": "enum",
+      "domain": {
+        "kind": "enum",
+        "source": "calibre_output_profiles"
+      },
+      "description": "Perfil del dispositivo objetivo para ajustar el EPUB resultante.",
+      "category": "profiles",
+      "depends_on": []
+    },
+    {
+      "id": "help",
+      "cli": "--help",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Muestra la ayuda oficial de ebook-convert.",
+      "category": "profiles",
+      "depends_on": [],
+      "notes": "Generalmente se usa vía CLI directa, no desde la interfaz."
+    },
+    {
+      "id": "version",
+      "cli": "--version",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Imprime la versión del ejecutable calibre.",
+      "category": "profiles",
+      "depends_on": []
+    },
+    {
+      "id": "asciiize",
+      "cli": "--asciiize",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Translitera caracteres Unicode a ASCII básico.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "base-font-size",
+      "cli": "--base-font-size",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 1.0,
+        "max": 96.0,
+        "units": "pt"
+      },
+      "description": "Define la base de tamaño tipográfico sobre la que calibre hace remapping.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "change-justification",
+      "cli": "--change-justification",
+      "value_type": "enum",
+      "domain": {
+        "kind": "enum",
+        "values": [
+          "left",
+          "justify",
+          "original"
+        ]
+      },
+      "description": "Fuerza la alineación global del texto.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "disable-font-rescaling",
+      "cli": "--disable-font-rescaling",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Impide que calibre reescale los tamaños de fuente detectados.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "embed-all-fonts",
+      "cli": "--embed-all-fonts",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Intenta incrustar todas las fuentes que se referencian en el PDF.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "embed-font-family",
+      "cli": "--embed-font-family",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "font_family"
+      },
+      "description": "Fuente principal a incrustar y aplicar como base.",
+      "category": "look_and_feel",
+      "depends_on": [
+        "--embed-all-fonts"
+      ]
+    },
+    {
+      "id": "expand-css",
+      "cli": "--expand-css",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Produce CSS sin abreviaturas ni compresión.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "extra-css",
+      "cli": "--extra-css",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "path_or_inline_css"
+      },
+      "description": "CSS adicional para aplicar tras la conversión.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "filter-css",
+      "cli": "--filter-css",
+      "value_type": "string",
+      "domain": {
+        "kind": "list",
+        "item": "css_property",
+        "separator": ","
+      },
+      "description": "Elimina propiedades CSS específicas del resultado.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "font-size-mapping",
+      "cli": "--font-size-mapping",
+      "value_type": "string",
+      "domain": {
+        "kind": "sequence",
+        "length": 8,
+        "units": "pt"
+      },
+      "description": "Mapa de ocho valores que calibra equivalencias de tamaños típicos.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "insert-blank-line",
+      "cli": "--insert-blank-line",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Inserta una línea en blanco entre párrafos consecutivos.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "insert-blank-line-size",
+      "cli": "--insert-blank-line-size",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.1,
+        "max": 5.0,
+        "units": "em"
+      },
+      "description": "Controla el tamaño de la línea en blanco generada.",
+      "category": "look_and_feel",
+      "depends_on": [
+        "--insert-blank-line"
+      ]
+    },
+    {
+      "id": "keep-ligatures",
+      "cli": "--keep-ligatures",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Conserva ligaduras tipográficas en lugar de expandirlas.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "line-height",
+      "cli": "--line-height",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.8,
+        "max": 5.0,
+        "units": "pt"
+      },
+      "description": "Fija interlineado absoluto en puntos.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "minimum-line-height",
+      "cli": "--minimum-line-height",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 5.0,
+        "units": "ratio"
+      },
+      "description": "Establece el mínimo de interlineado respecto al tamaño de fuente.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "linearize-tables",
+      "cli": "--linearize-tables",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Convierte tablas en bloques lineales para evitar desbordes.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "margin-top",
+      "cli": "--margin-top",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 40.0,
+        "units": "pt"
+      },
+      "description": "Margen superior aplicado al EPUB.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "margin-right",
+      "cli": "--margin-right",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 40.0,
+        "units": "pt"
+      },
+      "description": "Margen derecho aplicado al EPUB.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "margin-bottom",
+      "cli": "--margin-bottom",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 40.0,
+        "units": "pt"
+      },
+      "description": "Margen inferior aplicado al EPUB.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "margin-left",
+      "cli": "--margin-left",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 40.0,
+        "units": "pt"
+      },
+      "description": "Margen izquierdo aplicado al EPUB.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "remove-paragraph-spacing",
+      "cli": "--remove-paragraph-spacing",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Elimina el espacio vertical entre párrafos.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "remove-paragraph-spacing-indent-size",
+      "cli": "--remove-paragraph-spacing-indent-size",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 10.0,
+        "units": "em"
+      },
+      "description": "Controla la sangría aplicada al activar remove-paragraph-spacing.",
+      "category": "look_and_feel",
+      "depends_on": [
+        "--remove-paragraph-spacing"
+      ]
+    },
+    {
+      "id": "smarten-punctuation",
+      "cli": "--smarten-punctuation",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Convierte comillas rectas y guiones en sus variantes tipográficas.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "unsmarten-punctuation",
+      "cli": "--unsmarten-punctuation",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Revierte la tipografía inteligente hacia caracteres ASCII simples.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "subset-embedded-fonts",
+      "cli": "--subset-embedded-fonts",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Reduce las fuentes incrustadas a los glifos utilizados.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "transform-css-rules",
+      "cli": "--transform-css-rules",
+      "value_type": "path",
+      "domain": {
+        "kind": "path",
+        "path_type": "file"
+      },
+      "description": "Archivo con reglas de transformación CSS aplicadas tras la conversión.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "transform-html-rules",
+      "cli": "--transform-html-rules",
+      "value_type": "path",
+      "domain": {
+        "kind": "path",
+        "path_type": "file"
+      },
+      "description": "Archivo de reglas personalizadas para postprocesar el HTML.",
+      "category": "look_and_feel",
+      "depends_on": []
+    },
+    {
+      "id": "enable-heuristics",
+      "cli": "--enable-heuristics",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Activa el conjunto de heurísticas de limpieza de calibre.",
+      "category": "heuristics",
+      "depends_on": []
+    },
+    {
+      "id": "disable-dehyphenate",
+      "cli": "--disable-dehyphenate",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Desactiva la heurística que quita guiones de fin de línea.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "disable-delete-blank-paragraphs",
+      "cli": "--disable-delete-blank-paragraphs",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Evita que se eliminen párrafos en blanco redundantes.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "disable-fix-indents",
+      "cli": "--disable-fix-indents",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Impide que calibre reprocesé sangrías inconsistentes.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "disable-format-scene-breaks",
+      "cli": "--disable-format-scene-breaks",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "No aplica formato especial a separadores de escena.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "disable-italicize-common-cases",
+      "cli": "--disable-italicize-common-cases",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Evita que calibre marque en cursiva patrones habituales detectados.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "disable-markup-chapter-headings",
+      "cli": "--disable-markup-chapter-headings",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "No retoca el marcado de encabezados de capítulo.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "disable-renumber-headings",
+      "cli": "--disable-renumber-headings",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Evita que calibre renumeré encabezados al detectar estructura.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "disable-unwrap-lines",
+      "cli": "--disable-unwrap-lines",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Conserva saltos de línea originales evitando el 'unwrap'.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "html-unwrap-factor",
+      "cli": "--html-unwrap-factor",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 1.0,
+        "units": "ratio"
+      },
+      "description": "Umbral que determina cuándo unir líneas partidas en HTML.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "replace-scene-breaks",
+      "cli": "--replace-scene-breaks",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Sustituye los separadores de escena por un texto fijo.",
+      "category": "heuristics",
+      "depends_on": [
+        "--enable-heuristics"
+      ]
+    },
+    {
+      "id": "search-replace",
+      "cli": "--search-replace",
+      "value_type": "path",
+      "domain": {
+        "kind": "path",
+        "path_type": "file"
+      },
+      "description": "Archivo con pares regex→reemplazo aplicados secuencialmente.",
+      "category": "search_replace",
+      "depends_on": []
+    },
+    {
+      "id": "sr1-search",
+      "cli": "--sr1-search",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "regex"
+      },
+      "description": "Regex de búsqueda rápida (regla 1).",
+      "category": "search_replace",
+      "depends_on": []
+    },
+    {
+      "id": "sr1-replace",
+      "cli": "--sr1-replace",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "replacement"
+      },
+      "description": "Reemplazo para la regla rápida 1.",
+      "category": "search_replace",
+      "depends_on": [
+        "--sr1-search"
+      ]
+    },
+    {
+      "id": "sr2-search",
+      "cli": "--sr2-search",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "regex"
+      },
+      "description": "Regex de búsqueda rápida (regla 2).",
+      "category": "search_replace",
+      "depends_on": []
+    },
+    {
+      "id": "sr2-replace",
+      "cli": "--sr2-replace",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "replacement"
+      },
+      "description": "Reemplazo para la regla rápida 2.",
+      "category": "search_replace",
+      "depends_on": [
+        "--sr2-search"
+      ]
+    },
+    {
+      "id": "sr3-search",
+      "cli": "--sr3-search",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "regex"
+      },
+      "description": "Regex de búsqueda rápida (regla 3).",
+      "category": "search_replace",
+      "depends_on": []
+    },
+    {
+      "id": "sr3-replace",
+      "cli": "--sr3-replace",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "replacement"
+      },
+      "description": "Reemplazo para la regla rápida 3.",
+      "category": "search_replace",
+      "depends_on": [
+        "--sr3-search"
+      ]
+    },
+    {
+      "id": "add-alt-text-to-img",
+      "cli": "--add-alt-text-to-img",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Añade texto alternativo usando metadatos del PDF cuando faltan.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "chapter",
+      "cli": "--chapter",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "xpath"
+      },
+      "description": "XPath que identifica encabezados de capítulo.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "chapter-mark",
+      "cli": "--chapter-mark",
+      "value_type": "enum",
+      "domain": {
+        "kind": "enum",
+        "values": [
+          "pagebreak",
+          "rule",
+          "both",
+          "none"
+        ]
+      },
+      "description": "Marca visual o salto aplicado al inicio de cada capítulo.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "disable-remove-fake-margins",
+      "cli": "--disable-remove-fake-margins",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Conserva márgenes simulados detectados en el PDF.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "insert-metadata",
+      "cli": "--insert-metadata",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Inserta metadatos al inicio del documento resultante.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "page-breaks-before",
+      "cli": "--page-breaks-before",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "xpath"
+      },
+      "description": "XPath cuya coincidencia provoca un salto de página previo.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "prefer-metadata-cover",
+      "cli": "--prefer-metadata-cover",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Prefiere la portada especificada en metadatos frente a la detectada.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "remove-first-image",
+      "cli": "--remove-first-image",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Elimina la primera imagen detectada (útil para quitar portadas duplicadas).",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "start-reading-at",
+      "cli": "--start-reading-at",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "xpath"
+      },
+      "description": "XPath que define el punto inicial de lectura.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "duplicate-links-in-toc",
+      "cli": "--duplicate-links-in-toc",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Permite que la tabla de contenidos contenga enlaces duplicados.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "level1-toc",
+      "cli": "--level1-toc",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "xpath"
+      },
+      "description": "XPath del nivel 1 de la tabla de contenidos.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "level2-toc",
+      "cli": "--level2-toc",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "xpath"
+      },
+      "description": "XPath del nivel 2 de la tabla de contenidos.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "level3-toc",
+      "cli": "--level3-toc",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "xpath"
+      },
+      "description": "XPath del nivel 3 de la tabla de contenidos.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "max-toc-links",
+      "cli": "--max-toc-links",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": 0,
+        "max": 500
+      },
+      "description": "Límite superior de entradas en la tabla de contenidos generada.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "no-chapters-in-toc",
+      "cli": "--no-chapters-in-toc",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Evita añadir capítulos auto-detectados a la tabla de contenidos.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "toc-filter",
+      "cli": "--toc-filter",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "regex"
+      },
+      "description": "Filtra entradas del TOC que no coincidan con la expresión.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "toc-threshold",
+      "cli": "--toc-threshold",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": 0,
+        "max": 50
+      },
+      "description": "Umbral para decidir si se enlazan capítulos en el TOC automático.",
+      "category": "toc",
+      "depends_on": [
+        "--use-auto-toc"
+      ]
+    },
+    {
+      "id": "use-auto-toc",
+      "cli": "--use-auto-toc",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Fuerza el uso del TOC automático generado por calibre.",
+      "category": "toc",
+      "depends_on": []
+    },
+    {
+      "id": "author-sort",
+      "cli": "--author-sort",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Campo de ordenación de autores.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "authors",
+      "cli": "--authors",
+      "value_type": "string",
+      "domain": {
+        "kind": "list",
+        "item": "text",
+        "separator": ","
+      },
+      "description": "Lista de autores separados por coma.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "book-producer",
+      "cli": "--book-producer",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Productor o responsable de la edición.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "comments",
+      "cli": "--comments",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "html"
+      },
+      "description": "Descripción o sinopsis en formato HTML reducido.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "cover",
+      "cli": "--cover",
+      "value_type": "path",
+      "domain": {
+        "kind": "path",
+        "path_type": "file"
+      },
+      "description": "Ruta a la imagen de portada a incrustar.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "isbn",
+      "cli": "--isbn",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "isbn"
+      },
+      "description": "Código ISBN del libro.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "language",
+      "cli": "--language",
+      "value_type": "string",
+      "domain": {
+        "kind": "enum",
+        "source": "iso_639_1"
+      },
+      "description": "Código de idioma ISO 639-1.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "pubdate",
+      "cli": "--pubdate",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "datetime"
+      },
+      "description": "Fecha de publicación (ISO 8601).",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "publisher",
+      "cli": "--publisher",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Nombre de la editorial.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "rating",
+      "cli": "--rating",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": 1,
+        "max": 5
+      },
+      "description": "Valoración en escala 1-5.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "read-metadata-from-opf",
+      "cli": "--read-metadata-from-opf",
+      "aliases": [
+        "--from-opf",
+        "-m"
+      ],
+      "value_type": "path",
+      "domain": {
+        "kind": "path",
+        "path_type": "file"
+      },
+      "description": "Carga metadatos desde un archivo OPF existente.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "series",
+      "cli": "--series",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Nombre de la serie o saga.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "series-index",
+      "cli": "--series-index",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 999.9
+      },
+      "description": "Posición numérica dentro de la serie.",
+      "category": "metadata",
+      "depends_on": [
+        "--series"
+      ]
+    },
+    {
+      "id": "tags",
+      "cli": "--tags",
+      "value_type": "string",
+      "domain": {
+        "kind": "list",
+        "item": "text",
+        "separator": ","
+      },
+      "description": "Lista de etiquetas separadas por coma.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "timestamp",
+      "cli": "--timestamp",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "datetime"
+      },
+      "description": "Marca de tiempo asociada al libro (ISO 8601).",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "title",
+      "cli": "--title",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Título principal del libro.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "title-sort",
+      "cli": "--title-sort",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Título para efectos de ordenación.",
+      "category": "metadata",
+      "depends_on": []
+    },
+    {
+      "id": "debug-pipeline",
+      "cli": "--debug-pipeline",
+      "aliases": [
+        "-d"
+      ],
+      "value_type": "path",
+      "domain": {
+        "kind": "path",
+        "path_type": "directory"
+      },
+      "description": "Directorio en el que se vuelcan los artefactos de depuración.",
+      "category": "debug",
+      "depends_on": []
+    },
+    {
+      "id": "verbose",
+      "cli": "--verbose",
+      "aliases": [
+        "-v"
+      ],
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Aumenta la verbosidad (puede repetirse para más detalle).",
+      "category": "debug",
+      "depends_on": [],
+      "repeatable": true
+    },
+    {
+      "id": "input-encoding",
+      "cli": "--input-encoding",
+      "value_type": "string",
+      "domain": {
+        "kind": "enum",
+        "source": "iana_charsets"
+      },
+      "description": "Fuerza una codificación concreta durante la lectura del PDF.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "no-images",
+      "cli": "--no-images",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Impide extraer imágenes del PDF.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "pdf-engine",
+      "cli": "--pdf-engine",
+      "value_type": "enum",
+      "domain": {
+        "kind": "enum",
+        "values": [
+          "calibre",
+          "pdftohtml"
+        ]
+      },
+      "description": "Selecciona el motor de análisis del PDF.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "pdf-footer-regex",
+      "cli": "--pdf-footer-regex",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "regex"
+      },
+      "description": "Regex para detectar y eliminar el pie de página.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "pdf-header-regex",
+      "cli": "--pdf-header-regex",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "regex"
+      },
+      "description": "Regex para detectar y eliminar la cabecera.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "pdf-footer-skip",
+      "cli": "--pdf-footer-skip",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": -1000,
+        "max": 1000,
+        "units": "px"
+      },
+      "description": "Pixeles del final de la página a ignorar antes de aplicar el regex.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "pdf-header-skip",
+      "cli": "--pdf-header-skip",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": -1000,
+        "max": 1000,
+        "units": "px"
+      },
+      "description": "Pixeles de la parte superior a ignorar antes del regex de cabecera.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "unwrap-factor",
+      "cli": "--unwrap-factor",
+      "value_type": "float",
+      "domain": {
+        "kind": "range",
+        "min": 0.0,
+        "max": 1.0,
+        "units": "ratio"
+      },
+      "description": "Controla el umbral para unir líneas cortas en la fase PDF->HTML.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "dont-split-on-page-breaks",
+      "cli": "--dont-split-on-page-breaks",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Evita que los saltos de página provoquen división de archivos HTML.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "flow-size",
+      "cli": "--flow-size",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": 0,
+        "max": 2048,
+        "units": "KB"
+      },
+      "description": "Tamaño máximo de cada fragmento HTML generado.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "epub-version",
+      "cli": "--epub-version",
+      "value_type": "enum",
+      "domain": {
+        "kind": "enum",
+        "values": [
+          "2",
+          "3"
+        ]
+      },
+      "description": "Selecciona la versión del estándar EPUB.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "epub-inline-toc",
+      "cli": "--epub-inline-toc",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Inserta un TOC inline dentro del contenido del EPUB.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "epub-toc-at-end",
+      "cli": "--epub-toc-at-end",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Sitúa el TOC inline al final del libro.",
+      "category": "epub_output",
+      "depends_on": [
+        "--epub-inline-toc"
+      ]
+    },
+    {
+      "id": "epub-flatten",
+      "cli": "--epub-flatten",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Aplana la jerarquía interna de ficheros en el EPUB.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "epub-max-image-size",
+      "cli": "--epub-max-image-size",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "geometry_or_profile"
+      },
+      "description": "Límite máximo de tamaño para imágenes (WxH, none o profile).",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "no-default-epub-cover",
+      "cli": "--no-default-epub-cover",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Evita que calibre genere una portada automática.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "no-svg-cover",
+      "cli": "--no-svg-cover",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Usa imágenes raster en lugar de portada SVG.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "preserve-cover-aspect-ratio",
+      "cli": "--preserve-cover-aspect-ratio",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Escala la portada sin deformarla para ajustarse al dispositivo.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "extract-to",
+      "cli": "--extract-to",
+      "value_type": "path",
+      "domain": {
+        "kind": "path",
+        "path_type": "directory"
+      },
+      "description": "Extrae el EPUB generado a un directorio para inspección.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "pretty-print",
+      "cli": "--pretty-print",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Emite archivos HTML/CSS con formato legible.",
+      "category": "epub_output",
+      "depends_on": []
+    },
+    {
+      "id": "toc-title",
+      "cli": "--toc-title",
+      "value_type": "string",
+      "domain": {
+        "kind": "string",
+        "format": "text"
+      },
+      "description": "Título que se mostrará en el TOC inline.",
+      "category": "epub_output",
+      "depends_on": [
+        "--epub-inline-toc"
+      ]
+    }
+  ]
+}
