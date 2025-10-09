@@ -170,6 +170,8 @@ def test_apply_preset_updates_options(root, prompts):
     form = notebook._forms[tab_id]
     field = form.sections["profiles"].fields["output-profile"]
     assert field.var.get() == "kindle_pw"
+    status = notebook._status_labels[tab_id].cget("text")
+    assert "Preset aplicado" in status
 
 
 def test_save_preset_creates_custom_entry(root, prompts, monkeypatch):
@@ -189,6 +191,8 @@ def test_save_preset_creates_custom_entry(root, prompts, monkeypatch):
     created = notebook._presets[-1]
     assert created.name == "Mi preset"
     assert created.options["base-font-size"] == "16"
+    status = notebook._status_labels[tab_id].cget("text")
+    assert "Preset guardado" in status
 
 def test_export_current_tab_writes_configuration(tmp_path, root, prompts):
     prompts.export_path = tmp_path / "config.json"
@@ -286,6 +290,9 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
     viewer = notebook._viewer_widgets[tab_id]
     assert viewer.last_path == tmp_path / "oeb-dir" / "chapter.xhtml"
     assert cleanup_calls == []
+    status = notebook._status_labels[tab_id].cget("text")
+    assert "Previsualización" in status
+    assert "Warnings" in status
 
 
 def test_preview_replaces_previous_workspace(tmp_path, root, prompts):
@@ -391,6 +398,9 @@ def test_generate_epub_updates_config_and_console(tmp_path, root, prompts):
     assert "[OK] EPUB generado" in text
     assert "todo ok" in text
     assert not prompts.errors
+    status = notebook._status_labels[tab_id].cget("text")
+    assert "EPUB" in status
+    assert "Tamaño" in status
 
 
 def test_generate_epub_reports_errors(tmp_path, root, prompts):
@@ -535,6 +545,8 @@ def test_export_oeb_writes_directory(tmp_path, root, prompts):
     console = notebook._console_widgets[tab_id]
     text = console.get("1.0", tk.END)
     assert "OEB exportado" in text
+    status = notebook._status_labels[tab_id].cget("text")
+    assert "OEB exportado" in status
 
 
 def test_export_oeb_runs_preview_when_missing(tmp_path, root, prompts):

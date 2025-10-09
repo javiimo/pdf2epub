@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import shlex
 import shutil
+import os
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -71,6 +73,7 @@ class ConfigNotebook(ttk.Frame):
         self._forms: Dict[str, ConfigForm] = {}
         self._viewer_widgets: Dict[str, HtmlViewer] = {}
         self._console_widgets: Dict[str, tk.Text] = {}
+        self._status_labels: Dict[str, ttk.Label] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
         self._preview_runner = preview_runner or (lambda config: run_preview(config, catalog=self.catalog))
         self._conversion_runner = conversion_runner or (
@@ -162,6 +165,7 @@ class ConfigNotebook(ttk.Frame):
         self._forms[tab_id].sync_from_config()
         self._summary_labels[tab_id].configure(text=self._format_summary(config))
         self._append_console(tab_id, f"[OK] Preset aplicado: {preset.name}")
+        self._update_status(tab_id, f"Preset aplicado: {preset.name}")
 
     def save_preset(self) -> None:
         tab_id = self._current_tab_id()
@@ -188,6 +192,7 @@ class ConfigNotebook(ttk.Frame):
         )
         self._presets.append(preset)
         self._append_console(tab_id, f"[OK] Preset guardado: {preset.name}")
+        self._update_status(tab_id, f"Preset guardado: {preset.name}")
 
     def export_current_tab(self) -> Optional[Path]:
         tab_id = self._current_tab_id()
@@ -256,6 +261,7 @@ class ConfigNotebook(ttk.Frame):
         widget.columnconfigure(0, weight=3)
         widget.columnconfigure(1, weight=2)
         widget.rowconfigure(2, weight=1)
+        widget.rowconfigure(3, weight=0)
 
         tab_widget_id = str(widget)
 
@@ -279,10 +285,14 @@ class ConfigNotebook(ttk.Frame):
         )
         form.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 12))
 
+        status = ttk.Label(widget, text="Listo", anchor="w", padding=(12, 6))
+        status.grid(row=3, column=0, columnspan=2, sticky="ew")
+
         self.notebook.add(widget, text=config.title)
         self._config_by_tab[tab_widget_id] = config
         self._summary_labels[tab_widget_id] = summary
         self._forms[tab_widget_id] = form
+        self._status_labels[tab_widget_id] = status
         self.notebook.select(widget)
         return tab_widget_id
 
@@ -431,6 +441,11 @@ class ConfigNotebook(ttk.Frame):
         if viewer is not None:
             viewer.reset()
 
+    def _update_status(self, tab_widget_id: str, message: str) -> None:
+        label = self._status_labels.get(tab_widget_id)
+        if label is not None:
+            label.configure(text=message)
+
     def _format_command(self, command: Iterable[str]) -> str:
         return " ".join(shlex.quote(str(part)) for part in command)
 
@@ -500,6 +515,39 @@ class ConfigNotebook(ttk.Frame):
             parent=self.winfo_toplevel(),
         )
 
+    def _count_warnings(self, *streams: str) -> int:
+        total = 0
+        for stream in streams:
+            if not stream:
+                continue
+            for line in stream.splitlines():
+                if "warning" in line.lower():
+                    total += 1
+        return total
+
+    def _directory_size(self, path: Path) -> int:
+        total = 0
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += (Path(root) / name).stat().st_size
+                except OSError:
+                    continue
+        return total
+
+    def _format_size(self, size: int) -> str:
+        units = ["B", "KB", "MB", "GB"]
+        value = float(size)
+        for unit in units:
+            if value < 1024 or unit == units[-1]:
+                return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} {unit}"
+            value /= 1024
+
+    def _format_duration(self, seconds: float) -> str:
+        if seconds < 1:
+            return f"{seconds * 1000:.0f} ms"
+        return f"{seconds:.2f} s"
+
     def preview_current_tab(self) -> None:
         tab_id = self._current_tab_id()
         if tab_id is None:
@@ -509,11 +557,13 @@ class ConfigNotebook(ttk.Frame):
         config = self._config_by_tab[tab_id]
         self._append_console(tab_id, "Ejecutando previsualización…", clear=True)
 
+        start = time.perf_counter()
         try:
             result = self._preview_runner(config)
         except PreviewError as exc:
             self._append_console(tab_id, self._format_run_error(exc), clear=True)
             self._error_handler(str(exc))
+            self._update_status(tab_id, f"Error en previsualización: {exc}")
             return
 
         self._cleanup_preview_state(tab_id)
@@ -522,6 +572,13 @@ class ConfigNotebook(ttk.Frame):
         if viewer is not None:
             viewer.load(result.spine_first_html)
         self._append_console(tab_id, self._format_preview_success(result), clear=True)
+        duration = time.perf_counter() - start
+        warnings = self._count_warnings(result.stdout, result.stderr)
+        size = self._format_size(self._directory_size(result.oeb_output))
+        self._update_status(
+            tab_id,
+            f"Previsualización en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}",
+        )
 
     def generate_epub(self) -> None:
         tab_id = self._current_tab_id()
@@ -544,14 +601,23 @@ class ConfigNotebook(ttk.Frame):
 
         self._append_console(tab_id, "Generando EPUB…")
 
+        start = time.perf_counter()
         try:
             result = self._conversion_runner(config, target_path)
         except ConversionError as exc:
             self._append_console(tab_id, self._format_run_error(exc))
             self._error_handler(str(exc))
+            self._update_status(tab_id, f"Error al generar EPUB: {exc}")
             return
 
         self._append_console(tab_id, self._format_conversion_success(result))
+        duration = time.perf_counter() - start
+        warnings = self._count_warnings(result.stdout, result.stderr)
+        size = self._format_size(result.target.stat().st_size)
+        self._update_status(
+            tab_id,
+            f"EPUB listo en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}",
+        )
 
     def export_oeb(self) -> None:
         tab_id = self._current_tab_id()
@@ -595,14 +661,23 @@ class ConfigNotebook(ttk.Frame):
             export_dir.mkdir(parents=True, exist_ok=True)
 
         self._append_console(tab_id, f"Exportando OEB a {export_dir}…")
+        start = time.perf_counter()
         try:
             shutil.copytree(source_dir, export_dir, dirs_exist_ok=True)
         except OSError as exc:
             self._append_console(tab_id, f"[ERROR] No se pudo exportar el OEB: {exc}")
             self._error_handler(f"No se pudo exportar el OEB: {exc}")
+            self._update_status(tab_id, f"Error al exportar OEB: {exc}")
             return
 
         self._append_console(tab_id, f"[OK] OEB exportado en: {export_dir}")
+        duration = time.perf_counter() - start
+        size = self._format_size(self._directory_size(export_dir))
+        warnings = self._count_warnings("", "")
+        self._update_status(
+            tab_id,
+            f"OEB exportado en {self._format_duration(duration)} · Warnings: {warnings} · Tamaño: {size}",
+        )
 
     def reload_preview(self, tab_widget_id: Optional[str] = None) -> None:
         tab_id = tab_widget_id or self._current_tab_id()
