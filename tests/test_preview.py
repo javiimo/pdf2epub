@@ -65,6 +65,8 @@ def test_run_preview_returns_result(tmp_path):
     assert result.stderr == "warn"
     assert result.workspace.cleaned is False
     assert result.spine_first_html.name == "chapter1.xhtml"
+    assert len(result.spine_linear_items) == 1
+    assert result.spine_linear_items[0].href.name == "chapter1.xhtml"
 
 
 def test_run_preview_cleans_workspace_on_failure(tmp_path):

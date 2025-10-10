@@ -25,6 +25,7 @@ from app.html_viewer import HtmlViewer
 from app.preset_dialog import choose_preset
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
+from core.parser import SpineItem
 from core.presets import Preset, apply_preset, get_presets
 from core.runner.cli_parser import (
     CliParseError,
@@ -85,6 +86,7 @@ class ConfigNotebook(ttk.Frame):
         self._viewer_widgets: Dict[str, HtmlViewer] = {}
         self._console_widgets: Dict[str, tk.Text] = {}
         self._status_labels: Dict[str, ttk.Label] = {}
+        self._spine_controls: Dict[str, Dict[str, Any]] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
         self._running_jobs: Dict[str, dict] = {}
         self._preview_runner = preview_runner
@@ -692,12 +694,40 @@ class ConfigNotebook(ttk.Frame):
         viewer = HtmlViewer(viewer_frame)
         viewer.grid(row=0, column=0, sticky="nsew", padx=6, pady=(6, 0))
 
+        nav_frame = ttk.Frame(viewer_frame)
+        nav_frame.grid(row=1, column=0, sticky="ew", padx=6, pady=(6, 0))
+        nav_frame.columnconfigure(1, weight=1)
+
+        prev_button = ttk.Button(
+            nav_frame,
+            text="Anterior",
+            command=lambda tab_id=tab_widget_id: self._navigate_spine(tab_id, -1),
+            state=tk.DISABLED,
+        )
+        prev_button.grid(row=0, column=0, padx=(0, 6))
+
+        spine_var = tk.StringVar()
+        spine_combo = ttk.Combobox(nav_frame, textvariable=spine_var, state="disabled")
+        spine_combo.grid(row=0, column=1, sticky="ew")
+        spine_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event, tab_id=tab_widget_id: self._on_spine_selected(tab_id),
+        )
+
+        next_button = ttk.Button(
+            nav_frame,
+            text="Siguiente",
+            command=lambda tab_id=tab_widget_id: self._navigate_spine(tab_id, 1),
+            state=tk.DISABLED,
+        )
+        next_button.grid(row=0, column=2, padx=(6, 0))
+
         reload_button = ttk.Button(
             viewer_frame,
             text="Recargar",
             command=lambda tab_id=tab_widget_id: self.reload_preview(tab_id),
         )
-        reload_button.grid(row=1, column=0, sticky="w", padx=6, pady=6)
+        reload_button.grid(row=2, column=0, sticky="w", padx=6, pady=6)
 
         console_frame = ttk.LabelFrame(parent, text="Consola")
         console_frame.grid(row=1, column=0, sticky="nsew")
@@ -713,6 +743,16 @@ class ConfigNotebook(ttk.Frame):
         self._viewer_widgets[tab_widget_id] = viewer
         self._console_widgets[tab_widget_id] = console
         viewer.apply_font_scale(self._font_size)
+        self._spine_controls[tab_widget_id] = {
+            "items": [],
+            "labels": [],
+            "current": None,
+            "combo": spine_combo,
+            "var": spine_var,
+            "prev": prev_button,
+            "next": next_button,
+            "suspend": False,
+        }
 
     def _append_console(self, tab_widget_id: str, message: str, *, clear: bool = False) -> None:
         console = self._console_widgets.get(tab_widget_id)
@@ -742,6 +782,110 @@ class ConfigNotebook(ttk.Frame):
         viewer = self._viewer_widgets.get(tab_widget_id)
         if viewer is not None:
             viewer.reset()
+        controls = self._spine_controls.get(tab_widget_id)
+        if controls:
+            controls["items"] = []
+            controls["labels"] = []
+            controls["current"] = None
+            controls["suspend"] = True
+            try:
+                controls["var"].set("")
+            finally:
+                controls["suspend"] = False
+            combo: ttk.Combobox = controls["combo"]
+            combo.configure(values=(), state="disabled")
+            controls["prev"].configure(state=tk.DISABLED)
+            controls["next"].configure(state=tk.DISABLED)
+
+    def _format_spine_label(self, oeb_root: Path, index: int, item: SpineItem) -> str:
+        try:
+            relative = item.href.relative_to(oeb_root)
+            display = relative.as_posix()
+        except ValueError:
+            display = item.href.name
+        display = display or item.idref
+        return f"{index}. {display}"
+
+    def _update_spine_controls(self, tab_widget_id: str, result: PreviewResult) -> None:
+        controls = self._spine_controls.get(tab_widget_id)
+        if controls is None:
+            return
+        items = list(result.spine_linear_items or ())
+        if not items:
+            items = [
+                SpineItem(
+                    idref=result.spine_first_html.name,
+                    href=result.spine_first_html,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                )
+            ]
+        controls["items"] = items
+        labels = [self._format_spine_label(result.oeb_output, idx + 1, item) for idx, item in enumerate(items)]
+        controls["labels"] = labels
+        combo: ttk.Combobox = controls["combo"]
+        combo.configure(values=labels)
+        if items:
+            combo.configure(state="readonly")
+            previous = controls.get("current")
+            target_index = 0 if previous is None else max(0, min(previous, len(items) - 1))
+            self._set_spine_selection(tab_widget_id, target_index, load_viewer=True)
+        else:
+            controls["suspend"] = True
+            try:
+                controls["var"].set("")
+            finally:
+                controls["suspend"] = False
+            combo.configure(state="disabled")
+            controls["prev"].configure(state=tk.DISABLED)
+            controls["next"].configure(state=tk.DISABLED)
+            controls["current"] = None
+
+    def _set_spine_selection(self, tab_widget_id: str, index: int, *, load_viewer: bool) -> None:
+        controls = self._spine_controls.get(tab_widget_id)
+        if not controls:
+            return
+        items: List[SpineItem] = controls.get("items", [])
+        if not items:
+            return
+        clamped = max(0, min(index, len(items) - 1))
+        label = controls["labels"][clamped] if clamped < len(controls["labels"]) else ""
+        controls["current"] = clamped
+        controls["suspend"] = True
+        try:
+            controls["var"].set(label)
+        finally:
+            controls["suspend"] = False
+        controls["prev"].configure(state=tk.NORMAL if clamped > 0 else tk.DISABLED)
+        controls["next"].configure(state=tk.NORMAL if clamped < len(items) - 1 else tk.DISABLED)
+        if load_viewer:
+            viewer = self._viewer_widgets.get(tab_widget_id)
+            if viewer is not None:
+                viewer.load(items[clamped].href)
+
+    def _navigate_spine(self, tab_widget_id: str, delta: int) -> None:
+        controls = self._spine_controls.get(tab_widget_id)
+        if not controls or not controls.get("items"):
+            return
+        current = controls.get("current")
+        base = 0 if current is None else current
+        self._set_spine_selection(tab_widget_id, base + delta, load_viewer=True)
+
+    def _on_spine_selected(self, tab_widget_id: str) -> None:
+        controls = self._spine_controls.get(tab_widget_id)
+        if not controls or controls.get("suspend"):
+            return
+        items = controls.get("items") or []
+        if not items:
+            return
+        value = controls["var"].get()
+        try:
+            index = controls["labels"].index(value)
+        except ValueError:
+            return
+        if controls.get("current") == index:
+            return
+        self._set_spine_selection(tab_widget_id, index, load_viewer=True)
 
     def _update_status(self, tab_widget_id: str, message: str) -> None:
         label = self._status_labels.get(tab_widget_id)
@@ -907,9 +1051,12 @@ class ConfigNotebook(ttk.Frame):
         def on_success(result: PreviewResult) -> None:
             self._cleanup_preview_state(tab_id)
             self._preview_state[tab_id] = result
-            viewer = self._viewer_widgets.get(tab_id)
-            if viewer is not None:
-                viewer.load(result.spine_first_html)
+            if tab_id in self._spine_controls:
+                self._update_spine_controls(tab_id, result)
+            else:
+                viewer = self._viewer_widgets.get(tab_id)
+                if viewer is not None:
+                    viewer.load(result.spine_first_html)
             include_streams = not streaming_enabled
             summary = self._format_preview_success(result, include_streams=include_streams)
             if streaming_enabled:

@@ -9,7 +9,7 @@ from typing import Callable, List, Optional, Sequence
 
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, get_catalog
-from core.parser import OpfParserError, find_first_spine_html
+from core.parser import OpfParserError, SpineItem, parse_spine
 from core.runner.cli_support import get_supported_flags
 from core.runner.options_cli import build_convert_command
 from core.runner.pdf_subset import PdfSubsetError, prepare_pdf_subset
@@ -33,6 +33,7 @@ class PreviewResult:
     stdout: str
     stderr: str
     spine_first_html: Path
+    spine_linear_items: Sequence[SpineItem] = ()
     skipped_options: Sequence[str] = ()
 
 
@@ -145,7 +146,7 @@ def run_preview(
         )
 
     try:
-        spine_first = find_first_spine_html(oeb_output)
+        spine_items = parse_spine(oeb_output)
     except OpfParserError as exc:
         workspace.cleanup()
         raise PreviewError(
@@ -156,6 +157,35 @@ def run_preview(
             returncode=completed.returncode,
         ) from exc
 
+    linear_html: List[SpineItem] = []
+    for entry in spine_items:
+        if not entry.linear:
+            continue
+        if "html" not in entry.media_type.lower():
+            continue
+        if not entry.href.exists():
+            workspace.cleanup()
+            raise PreviewError(
+                f"El archivo referenciado por '{entry.idref}' no existe: {entry.href}",
+                command=command,
+                stdout=stdout,
+                stderr=stderr,
+                returncode=completed.returncode,
+            )
+        linear_html.append(entry)
+
+    if not linear_html:
+        workspace.cleanup()
+        raise PreviewError(
+            "No se encontró ningún elemento HTML lineal en el spine.",
+            command=command,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=completed.returncode,
+        )
+
+    spine_first = linear_html[0].href
+
     return PreviewResult(
         workspace=workspace,
         command=command,
@@ -165,4 +195,5 @@ def run_preview(
         stderr=stderr,
         spine_first_html=spine_first,
         skipped_options=tuple(skipped),
+        spine_linear_items=tuple(linear_html),
     )

@@ -26,6 +26,14 @@ CATEGORY_ORDER = [
 TOOLTIP_BACKGROUND = "#13284B"
 TOOLTIP_FOREGROUND = "#ECEFF4"
 
+SPINBOX_BACKGROUND = "#3B4252"  # surface_alt
+SPINBOX_FOREGROUND = "#ECEFF4"
+SPINBOX_BUTTON_BACKGROUND = "#5E81AC"  # accent
+SPINBOX_BUTTON_ACTIVE = "#6B90C4"
+SPINBOX_DISABLED_BACKGROUND = "#4C566A"  # surface_raised
+SPINBOX_DISABLED_FOREGROUND = "#A7B0C4"
+SPINBOX_BORDER = "#4C566A"
+
 
 class Tooltip:
     """Simple tooltip bound to a widget."""
@@ -217,6 +225,8 @@ class OptionField:
     def _register_widget(self, widget: tk.Widget, active_state: str) -> None:
         self._interactive_widgets.append((widget, active_state))
         Tooltip(widget, self.tooltip_text)
+        if isinstance(widget, tk.Spinbox):
+            self._style_spinbox(widget)
 
     def _store_value(self, raw_value: Optional[str | int | bool]) -> None:
         key = self.option.id
@@ -307,6 +317,7 @@ class OptionField:
                 widget.configure(state=state)
             elif isinstance(widget, tk.Spinbox):
                 widget.configure(state=state)
+                self._apply_spinbox_palette(widget, disabled=disabled)
             else:
                 try:
                     widget.configure(state=state)
@@ -330,6 +341,42 @@ class OptionField:
         self.error_label.configure(style="Error.TLabel" if text else "TLabel")
         if getattr(self, "_error_tooltip", None) is not None:
             self._error_tooltip.set_text(text)
+
+    def _style_spinbox(self, spinbox: tk.Spinbox) -> None:
+        spinbox.configure(
+            background=SPINBOX_BACKGROUND,
+            foreground=SPINBOX_FOREGROUND,
+            readonlybackground=SPINBOX_BACKGROUND,
+            insertbackground=SPINBOX_FOREGROUND,
+            disabledbackground=SPINBOX_DISABLED_BACKGROUND,
+            disabledforeground=SPINBOX_DISABLED_FOREGROUND,
+            buttonbackground=SPINBOX_BUTTON_BACKGROUND,
+            activebackground=SPINBOX_BUTTON_ACTIVE,
+            highlightthickness=1,
+            highlightbackground=SPINBOX_BORDER,
+            highlightcolor=SPINBOX_BORDER,
+            relief="flat",
+            bd=1,
+        )
+        self._apply_spinbox_palette(spinbox, disabled=False)
+
+    def _apply_spinbox_palette(self, spinbox: tk.Spinbox, *, disabled: bool) -> None:
+        if disabled:
+            spinbox.configure(
+                background=SPINBOX_DISABLED_BACKGROUND,
+                foreground=SPINBOX_DISABLED_FOREGROUND,
+                buttonbackground=SPINBOX_DISABLED_BACKGROUND,
+                activebackground=SPINBOX_DISABLED_BACKGROUND,
+                readonlybackground=SPINBOX_DISABLED_BACKGROUND,
+            )
+        else:
+            spinbox.configure(
+                background=SPINBOX_BACKGROUND,
+                foreground=SPINBOX_FOREGROUND,
+                buttonbackground=SPINBOX_BUTTON_BACKGROUND,
+                activebackground=SPINBOX_BUTTON_ACTIVE,
+                readonlybackground=SPINBOX_BACKGROUND,
+            )
 
 
 class CategoryForm(ttk.LabelFrame):

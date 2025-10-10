@@ -10,6 +10,7 @@ from app.notebook import ConfigNotebook
 from core.configuration import TabConfiguration
 from core.options.catalog import get_catalog
 from core.presets import Preset
+from core.parser import SpineItem
 from core.runner.preview import PreviewError, PreviewResult
 from core.runner.epub import ConversionError, ConversionResult
 
@@ -280,6 +281,14 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
             stdout="todo bien",
             stderr="",
             spine_first_html=html_path,
+            spine_linear_items=(
+                SpineItem(
+                    idref="chap1",
+                    href=html_path,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+            ),
         )
 
     notebook = build_notebook(root, prompts, preview_runner=preview_runner)
@@ -305,6 +314,72 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
     assert "Warnings" in status
 
 
+def test_preview_navigation_allows_chapter_switch(tmp_path, root, prompts):
+    def preview_runner(config: TabConfiguration) -> PreviewResult:
+        workspace_path = tmp_path / "ws-nav"
+        workspace_path.mkdir()
+        oeb_dir = tmp_path / "oeb-nav"
+        oeb_dir.mkdir()
+        html1 = oeb_dir / "chapter1.xhtml"
+        html2 = oeb_dir / "chapter2.xhtml"
+        html1.write_text("uno", encoding="utf-8")
+        html2.write_text("dos", encoding="utf-8")
+        return PreviewResult(
+            workspace=SimpleNamespace(path=workspace_path, cleanup=lambda: None),
+            command=["ebook-convert", "input.pdf", "preview-oeb"],
+            oeb_output=oeb_dir,
+            subset_pdf=tmp_path / "subset.pdf",
+            stdout="ok",
+            stderr="",
+            spine_first_html=html1,
+            spine_linear_items=(
+                SpineItem(
+                    idref="chap1",
+                    href=html1,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+                SpineItem(
+                    idref="chap2",
+                    href=html2,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+            ),
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    config.input_pdf = tmp_path / "doc.pdf"
+    config.input_pdf.write_text("pdf", encoding="utf-8")
+
+    notebook.preview_current_tab()
+    wait_for_jobs(root, notebook)
+
+    viewer = notebook._viewer_widgets[tab_id]
+    assert viewer.last_path == (tmp_path / "oeb-nav" / "chapter1.xhtml")
+
+    controls = notebook._spine_controls[tab_id]
+    assert controls["combo"].cget("state") == "readonly"
+    assert controls["prev"].instate(("disabled",))
+    assert not controls["next"].instate(("disabled",))
+
+    controls["next"].invoke()
+    root.update_idletasks()
+    assert viewer.last_path == (tmp_path / "oeb-nav" / "chapter2.xhtml")
+    assert not controls["prev"].instate(("disabled",))
+    assert controls["next"].instate(("disabled",))
+    assert controls["var"].get() == controls["labels"][1]
+
+    controls["combo"].set(controls["labels"][0])
+    controls["combo"].event_generate("<<ComboboxSelected>>")
+    root.update_idletasks()
+    assert viewer.last_path == (tmp_path / "oeb-nav" / "chapter1.xhtml")
+    assert controls["prev"].instate(("disabled",))
+
+
 def test_preview_replaces_previous_workspace(tmp_path, root, prompts):
     cleanup_calls: list[str] = []
 
@@ -326,6 +401,14 @@ def test_preview_replaces_previous_workspace(tmp_path, root, prompts):
             stdout=label,
             stderr="",
             spine_first_html=html_path,
+            spine_linear_items=(
+                SpineItem(
+                    idref=f"{label}-chap",
+                    href=html_path,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+            ),
         )
 
     results = [make_result("ws1"), make_result("ws2")]
@@ -482,6 +565,14 @@ def test_reload_preview_updates_viewer(tmp_path, root, prompts):
             stdout="",
             stderr="",
             spine_first_html=html_path,
+            spine_linear_items=(
+                SpineItem(
+                    idref="page",
+                    href=html_path,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+            ),
         )
 
     notebook = build_notebook(root, prompts, preview_runner=preview_runner)
@@ -533,6 +624,14 @@ def test_export_oeb_writes_directory(tmp_path, root, prompts):
             stdout="ready",
             stderr="",
             spine_first_html=html,
+            spine_linear_items=(
+                SpineItem(
+                    idref="index",
+                    href=html,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+            ),
         )
 
     notebook = build_notebook(root, prompts, preview_runner=preview_runner)
@@ -577,6 +676,14 @@ def test_export_oeb_runs_preview_when_missing(tmp_path, root, prompts):
             stdout="ok",
             stderr="",
             spine_first_html=html,
+            spine_linear_items=(
+                SpineItem(
+                    idref="page",
+                    href=html,
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+            ),
         )
 
     notebook = build_notebook(root, prompts, preview_runner=preview_runner)
@@ -610,6 +717,14 @@ def test_export_oeb_requires_empty_directory(tmp_path, root, prompts):
             stdout="ok",
             stderr="",
             spine_first_html=oeb_dir / "file.xhtml",
+            spine_linear_items=(
+                SpineItem(
+                    idref="file",
+                    href=oeb_dir / "file.xhtml",
+                    media_type="application/xhtml+xml",
+                    linear=True,
+                ),
+            ),
         )
 
     notebook = build_notebook(root, prompts, preview_runner=preview_runner)
