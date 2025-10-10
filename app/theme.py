@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from tkinter import font as tkfont
 
 __all__ = ["apply_dark_nordic_theme"]
 
@@ -24,6 +25,7 @@ _COLORS = {
     "button_fg": "#E5E9F0",
     "selection_bg": "#88C0D0",
     "console_bg": "#1F2430",
+    "warning_bg": "#13284B",
 }
 
 
@@ -55,6 +57,28 @@ def _apply_widget_defaults(root: tk.Misc) -> None:
         root.option_add(pattern, value)
 
 
+def _configure_fonts(root: tk.Misc, base_font_size: int) -> None:
+    """Update Tk named fonts to match the desired base size."""
+
+    size = max(8, min(24, int(base_font_size)))
+    mapping = {
+        "TkDefaultFont": size,
+        "TkTextFont": size,
+        "TkMenuFont": size,
+        "TkHeadingFont": size + 1,
+        "TkFixedFont": size,
+        "TkTooltipFont": size,
+        "TkCaptionFont": size,
+        "TkSmallCaptionFont": size,
+        "TkIconFont": size,
+    }
+    for name, target_size in mapping.items():
+        try:
+            tkfont.nametofont(name).configure(size=target_size)
+        except tk.TclError:
+            continue
+
+
 def _configure_ttk_styles(style: ttk.Style) -> None:
     """Apply ttk style overrides for the dark palette."""
 
@@ -70,6 +94,15 @@ def _configure_ttk_styles(style: ttk.Style) -> None:
 
     style.configure("TFrame", background=_COLORS["surface"])
     style.configure("TLabel", background=_COLORS["surface"], foreground=_COLORS["foreground"])
+    style.configure(
+        "Error.TLabel",
+        background=_COLORS["warning_bg"],
+        foreground="#FF9B9B",
+        relief="solid",
+        borderwidth=1,
+        padding=(6, 4),
+    )
+    style.map("Error.TLabel", foreground=[("disabled", _COLORS["disabled_fg"])])
 
     style.configure(
         "TLabelframe",
@@ -207,12 +240,13 @@ def _configure_ttk_styles(style: ttk.Style) -> None:
     style.configure("TSeparator", background=_COLORS["border"])
 
 
-def apply_dark_nordic_theme(root: tk.Misc) -> None:
+def apply_dark_nordic_theme(root: tk.Misc, *, base_font_size: int = 11) -> None:
     """Apply a Nord-inspired dark blue palette to the whole UI."""
 
     if isinstance(root, tk.Tk):
         root.configure(background=_COLORS["surface"])
 
     _apply_widget_defaults(root)
+    _configure_fonts(root, base_font_size)
     style = ttk.Style(root)
     _configure_ttk_styles(style)

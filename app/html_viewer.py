@@ -22,6 +22,7 @@ class HtmlViewer(ttk.Frame):
     def __init__(self, master: tk.Misc, *, height: int = 20) -> None:
         super().__init__(master)
         self._last_path: Optional[Path] = None
+        self._base_height = height
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
@@ -37,6 +38,7 @@ class HtmlViewer(ttk.Frame):
             text.configure(yscrollcommand=scrollbar.set)
             self._viewer = text
             self._fallback = text
+        self._font_reference = 11
 
     @property
     def last_path(self) -> Optional[Path]:
@@ -60,6 +62,20 @@ class HtmlViewer(ttk.Frame):
                 self._fallback.insert(tk.END, content)
             finally:
                 self._fallback.configure(state="disabled")
+
+    def apply_font_scale(self, base_font_size: int, *, reference_size: Optional[int] = None) -> None:
+        if self._fallback is None:
+            return
+        reference = reference_size or self._font_reference
+        size = max(1, int(base_font_size))
+        reference = max(1, int(reference))
+        target = max(4, int(round(self._base_height * reference / size)))
+        try:
+            current = int(self._fallback.cget("height"))
+        except (tk.TclError, ValueError, TypeError):
+            current = target
+        if current != target:
+            self._fallback.configure(height=target)
 
     def reload(self) -> None:
         if self._last_path is None:

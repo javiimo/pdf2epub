@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import threading
 import time
+import textwrap
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
@@ -17,6 +18,7 @@ from uuid import uuid4
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import font as tkfont
 
 from app.forms import ConfigForm
 from app.html_viewer import HtmlViewer
@@ -53,6 +55,8 @@ class ConfigNotebook(ttk.Frame):
         conversion_runner: Optional[Callable[[TabConfiguration, Path], ConversionResult]] = None,
         presets: Optional[Iterable[Preset]] = None,
         preset_selector: Optional[Callable[[List[Preset]], Optional[Preset]]] = None,
+        font_size: Optional[int] = None,
+        on_font_size_changed: Optional[Callable[[int], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -85,6 +89,10 @@ class ConfigNotebook(ttk.Frame):
         self._preset_selector = preset_selector or (lambda items: choose_preset(self, items))
         self._input_controls: Dict[str, Dict[str, Any]] = {}
         self._tab_counter = 1
+        self._font_size = max(8, min(24, int(font_size or 11)))
+        self._on_font_size_changed = on_font_size_changed
+        self._toolbar_buttons: List[tuple[ttk.Button, str]] = []
+        self._console_base_heights: Dict[str, int] = {}
 
         self._build_toolbar()
         self.new_tab()
@@ -108,6 +116,54 @@ class ConfigNotebook(ttk.Frame):
         for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             canvas.bind(sequence, _on_mousewheel, add=True)
             target.bind(sequence, _on_mousewheel, add=True)
+
+    def _adjust_wrap(self, label: ttk.Label, width: int, *, min_wrap: int = 200, padding: int = 24) -> None:
+        if width <= padding:
+            return
+        wrap = max(min_wrap, width - padding)
+        try:
+            current = int(label.cget("wraplength"))
+        except (tk.TclError, ValueError, TypeError):
+            current = 0
+        if wrap != current:
+            label.configure(wraplength=wrap)
+
+    def _refresh_toolbar_buttons(self) -> None:
+        if not self._toolbar_buttons:
+            return
+        total = len(self._toolbar_buttons)
+        for idx in range(total):
+            self.toolbar.grid_columnconfigure(idx, weight=1)
+        base_font = tkfont.nametofont("TkDefaultFont")
+        for button, base_text in self._toolbar_buttons:
+            button.configure(text=base_text)
+            width = button.winfo_width()
+            if width <= 1:
+                continue
+            available = max(32, width - 16)
+            text_width = base_font.measure(base_text)
+            if text_width <= available:
+                continue
+            char_width = base_font.measure("M") or 1
+            max_chars = max(4, available // char_width)
+            wrapped = textwrap.fill(base_text, width=max_chars)
+            if wrapped != button.cget("text"):
+                button.configure(text=wrapped)
+
+    def _apply_text_scaling(self) -> None:
+        size = max(8, min(24, int(self._font_size)))
+        reference = 11
+        for tab_id, console in self._console_widgets.items():
+            base_height = self._console_base_heights.get(tab_id, 8)
+            target_height = max(4, int(round(base_height * reference / size)))
+            try:
+                current_height = int(console.cget("height"))
+            except (tk.TclError, ValueError, TypeError):
+                current_height = target_height
+            if current_height != target_height:
+                console.configure(height=target_height)
+        for viewer in self._viewer_widgets.values():
+            viewer.apply_font_scale(size, reference_size=reference)
 
     def _start_background_job(
         self,
@@ -446,17 +502,20 @@ class ConfigNotebook(ttk.Frame):
             ("Previsualizar", self.preview_current_tab),
             ("Generar EPUB", self.generate_epub),
             ("Exportar OEB", self.export_oeb),
+            ("Tamaño letra", self.change_font_size),
         ]
 
         for idx, (label, command) in enumerate(buttons):
             button = ttk.Button(self.toolbar, text=label, command=command)
-            button.grid(row=0, column=idx, padx=4, pady=4, sticky="w")
-        self.toolbar.grid_columnconfigure(len(buttons), weight=1)
+            button.grid(row=0, column=idx, padx=4, pady=4, sticky="nsew")
+            button.configure(takefocus=True)
+            self.toolbar.grid_columnconfigure(idx, weight=1)
+            self._toolbar_buttons.append((button, label))
 
     def _add_tab(self, config: TabConfiguration) -> str:
         widget = ttk.Frame(self.notebook)
-        widget.columnconfigure(0, weight=3)
-        widget.columnconfigure(1, weight=2)
+        widget.columnconfigure(0, weight=1, uniform="pane")
+        widget.columnconfigure(1, weight=1, uniform="pane")
         widget.rowconfigure(2, weight=1)
         widget.rowconfigure(3, weight=0)
 
@@ -468,8 +527,14 @@ class ConfigNotebook(ttk.Frame):
             padding=12,
             justify="left",
             anchor="nw",
+            wraplength=600,
         )
         summary.grid(row=0, column=0, columnspan=2, sticky="ew")
+        summary.bind(
+            "<Configure>",
+            lambda event, label=summary: self._adjust_wrap(label, event.width, min_wrap=260),
+            add="+",
+        )
 
         self._create_input_controls(widget, config, tab_widget_id)
         self._create_side_panel(widget, tab_widget_id)
@@ -509,15 +574,22 @@ class ConfigNotebook(ttk.Frame):
         )
         form.grid(row=0, column=0, sticky="nsew")
 
-        status = ttk.Label(widget, text="Listo", anchor="w", padding=(12, 6))
+        status = ttk.Label(widget, text="Listo", anchor="w", padding=(12, 6), wraplength=400, justify="left")
         status.grid(row=3, column=0, columnspan=2, sticky="ew")
+        status.bind(
+            "<Configure>",
+            lambda event, label=status: self._adjust_wrap(label, event.width, min_wrap=200),
+            add="+",
+        )
 
         self.notebook.add(widget, text=config.title)
         self._config_by_tab[tab_widget_id] = config
         self._summary_labels[tab_widget_id] = summary
         self._forms[tab_widget_id] = form
         self._status_labels[tab_widget_id] = status
+        self._apply_text_scaling()
         self.notebook.select(widget)
+        self.after_idle(self.refresh_layouts)
         return tab_widget_id
 
     def _current_tab_id(self) -> Optional[str]:
@@ -602,7 +674,7 @@ class ConfigNotebook(ttk.Frame):
 
     def _create_side_panel(self, parent: ttk.Frame, tab_widget_id: str) -> None:
         panel = ttk.Frame(parent)
-        panel.grid(row=2, column=1, sticky="nsew", padx=(0, 12), pady=(0, 12))
+        panel.grid(row=2, column=1, sticky="nsew", padx=(6, 12), pady=(0, 12))
         panel.rowconfigure(0, weight=3)
         panel.rowconfigure(1, weight=2)
         panel.columnconfigure(0, weight=1)
@@ -635,6 +707,12 @@ class ConfigNotebook(ttk.Frame):
 
         self._viewer_widgets[tab_widget_id] = viewer
         self._console_widgets[tab_widget_id] = console
+        try:
+            base_height = int(console.cget("height"))
+        except (tk.TclError, ValueError, TypeError):
+            base_height = 8
+        self._console_base_heights[tab_widget_id] = max(4, base_height)
+        viewer.apply_font_scale(self._font_size)
 
     def _append_console(self, tab_widget_id: str, message: str, *, clear: bool = False) -> None:
         console = self._console_widgets.get(tab_widget_id)
@@ -1119,3 +1197,48 @@ class ConfigNotebook(ttk.Frame):
         for tab_id in list(self._preview_state.keys()):
             self._cleanup_preview_state(tab_id)
         super().destroy()
+
+    def refresh_layouts(self) -> None:
+        self.update_idletasks()
+        self._refresh_toolbar_buttons()
+        self._apply_text_scaling()
+        for form in self._forms.values():
+            form.update_responsive_layout()
+        for label in self._summary_labels.values():
+            width = label.winfo_width()
+            if width > 0:
+                self._adjust_wrap(label, width, min_wrap=260)
+        for label in self._status_labels.values():
+            width = label.winfo_width()
+            if width > 0:
+                self._adjust_wrap(label, width, min_wrap=200)
+
+    def change_font_size(self) -> None:
+        current = self._font_size
+        size = simpledialog.askinteger(
+            "Tamaño de letra",
+            "Selecciona el tamaño base de la fuente (8-24 pt):",
+            initialvalue=current,
+            minvalue=8,
+            maxvalue=24,
+            parent=self.winfo_toplevel(),
+        )
+        if size is None or int(size) == current:
+            return
+
+        size = max(8, min(24, int(size)))
+        previous = self._font_size
+        self._font_size = size
+        callback = self._on_font_size_changed
+        if callback is not None:
+            try:
+                callback(size)
+            except Exception as exc:
+                self._font_size = previous
+                self._error_handler(str(exc))
+                return
+        else:
+            self.refresh_layouts()
+        tab_id = self._current_tab_id()
+        if tab_id:
+            self._update_status(tab_id, f"Tamaño de letra actualizado a {size} pt")

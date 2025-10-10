@@ -1,6 +1,7 @@
 - [x] Cambiar la paleta de colores a dark nordic blue
-- [ ] Añadir botón para cambio de tamaño de letra y persistir estos cambios de configuración entre runs.
-- [ ] Look more modern.
-- [ ] Arreglar que para ver la descripción sale "\ua" en lo que entiendo que debería ser un icono o algo así.
+- [x] Añadir botón para cambio de tamaño de letra y persistir estos cambios de configuración entre runs.
+- [ ] Arreglar que para ver la descripción sale "\u2" o algo así en lo que entiendo que debería ser un icono me parece.
+- [ ] Look more modern. Hay botones y campos que no respetan la paleta de color nordic blue.
 - [ ] Mejorar los presets (ya daré más indicaciones de cómo)
 - [ ] Mejorar la UI: en lugar de enseñar un montón de opciones y resaltar qué hace cada una, podría ser más interesante diseñar preguntas sobre el documento y dar opciones de respuesta para que en base a esas respuestas se seleccionen las opciones. Así es mucho más interpretable para alguien que no conoce la herramienta. Algo así como un formulario con opciones.
+- [ ] Añadir icono a la app.

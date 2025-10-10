@@ -23,6 +23,9 @@ CATEGORY_ORDER = [
     "epub_output",
 ]
 
+TOOLTIP_BACKGROUND = "#13284B"
+TOOLTIP_FOREGROUND = "#ECEFF4"
+
 
 class Tooltip:
     """Simple tooltip bound to a widget."""
@@ -42,11 +45,13 @@ class Tooltip:
         self.tipwindow = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
+        tw.configure(background=TOOLTIP_BACKGROUND)
         label = tk.Label(
             tw,
             text=self.text,
             justify="left",
-            background="#ffffe1",
+            background=TOOLTIP_BACKGROUND,
+            foreground=TOOLTIP_FOREGROUND,
             relief="solid",
             borderwidth=1,
             padx=6,
@@ -113,7 +118,10 @@ class OptionField:
         self._dependency_message = ""
         self._dependency_blocked = False
 
-        self.label = ttk.Label(master, text=option.cli, width=30, anchor="w")
+        self._current_label_wrap = 0
+        self._current_error_wrap = 0
+
+        self.label = ttk.Label(master, text=option.cli, anchor="w", justify="left")
         Tooltip(self.label, self.tooltip_text)
 
         if option.repeatable and option.value_type == "boolean":
@@ -178,7 +186,7 @@ class OptionField:
         self.help_label = ttk.Label(master, text="❓", width=2, anchor="center")
         Tooltip(self.help_label, self.tooltip_text)
 
-        self.error_label = ttk.Label(master, text="", foreground="#b3261e", wraplength=240, anchor="w")
+        self.error_label = ttk.Label(master, text="", wraplength=240, anchor="w", justify="left")
 
     def grid(self, row: int) -> None:
         self.label.grid(row=row, column=0, sticky="w", padx=(4, 6), pady=2)
@@ -191,6 +199,14 @@ class OptionField:
         self.help_label.grid(row=row, column=2, sticky="e", padx=(0, 4), pady=2)
         self.error_label.grid(row=row, column=3, sticky="w", padx=(0, 4), pady=2)
         self._revalidate()
+
+    def update_wraplength(self, label_width: int, error_width: int) -> None:
+        if label_width > 0 and label_width != self._current_label_wrap:
+            self.label.configure(wraplength=label_width)
+            self._current_label_wrap = label_width
+        if error_width > 0 and error_width != self._current_error_wrap:
+            self.error_label.configure(wraplength=error_width)
+            self._current_error_wrap = error_width
 
     # -- Internal handlers ---------------------------------------------
 
@@ -305,7 +321,9 @@ class OptionField:
         if self._dependency_message:
             messages.append(self._dependency_message)
         messages.extend(self._validation_errors)
-        self.error_label.configure(text=" | ".join(messages))
+        text = " | ".join(messages)
+        self.error_label.configure(text=text)
+        self.error_label.configure(style="Error.TLabel" if text else "TLabel")
 
 
 class CategoryForm(ttk.LabelFrame):
@@ -329,6 +347,7 @@ class CategoryForm(ttk.LabelFrame):
         self.config = config
         self.on_change = on_change
         self.fields: Dict[str, OptionField] = {}
+        self._description_label: Optional[ttk.Label] = None
 
         self.columnconfigure(1, weight=1)
 
@@ -342,12 +361,40 @@ class CategoryForm(ttk.LabelFrame):
             self.fields[option.id] = field
 
         if metadata and metadata.description:
-            desc = ttk.Label(self, text=metadata.description, style="Small.TLabel")
+            desc = ttk.Label(self, text=metadata.description, style="Small.TLabel", justify="left")
             desc.grid(row=len(options), column=0, columnspan=4, sticky="w", padx=4, pady=(4, 0))
+            self._description_label = desc
+
+        self.bind("<Configure>", self._on_resize, add="+")
+        self.after_idle(self._apply_responsive_layout)
 
     def sync_from_config(self) -> None:
         for field in self.fields.values():
             field.sync_from_config()
+
+    def apply_responsive_layout(self) -> None:
+        self._apply_responsive_layout()
+
+    def _on_resize(self, event: tk.Event) -> None:
+        if event.width <= 1:
+            return
+        self._apply_responsive_layout(event.width)
+
+    def _apply_responsive_layout(self, available_width: Optional[int] = None) -> None:
+        width = available_width or self.winfo_width()
+        if width <= 1:
+            return
+
+        label_width = max(160, int(width * 0.32))
+        error_width = max(200, int(width * 0.45))
+        for field in self.fields.values():
+            field.update_wraplength(label_width, error_width)
+
+        if self._description_label is not None:
+            desc_wrap = max(200, width - 24)
+            current = int(self._description_label.cget("wraplength") or 0)
+            if desc_wrap != current:
+                self._description_label.configure(wraplength=desc_wrap)
 
 
 class ConfigForm(ttk.Frame):
@@ -387,6 +434,7 @@ class ConfigForm(ttk.Frame):
             self.sections[category] = section
 
         self.columnconfigure(0, weight=1)
+        self.after_idle(self.update_responsive_layout)
         self._refresh_dependencies()
 
     def _on_section_change(self, option_id: str) -> None:
@@ -396,7 +444,12 @@ class ConfigForm(ttk.Frame):
     def sync_from_config(self) -> None:
         for section in self.sections.values():
             section.sync_from_config()
+        self.update_responsive_layout()
         self._refresh_dependencies()
+
+    def update_responsive_layout(self) -> None:
+        for section in self.sections.values():
+            section.apply_responsive_layout()
 
     def _refresh_dependencies(self) -> None:
         for section in self.sections.values():

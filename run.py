@@ -15,6 +15,7 @@ from app.notebook import ConfigNotebook
 from app.theme import apply_dark_nordic_theme
 from core.options.catalog import Catalog, CatalogError, get_catalog, load_catalog
 from core.runner.dependencies import MissingDependencyError, verify_required_binaries
+from core.settings import SettingsError, UiSettings, load_settings, save_settings
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -59,7 +60,14 @@ def main(argv: list[str] | None = None) -> int:
     except tk.TclError as exc:
         print(f"No se pudo inicializar Tk: {exc}", file=sys.stderr)
         return 1
-    apply_dark_nordic_theme(root)
+
+    try:
+        ui_settings = load_settings()
+    except SettingsError as exc:
+        print(f"Aviso: {exc}", file=sys.stderr)
+        ui_settings = UiSettings()
+
+    apply_dark_nordic_theme(root, base_font_size=ui_settings.font_size)
 
     root.title("pdf2epub")
     root.minsize(1200, 720)
@@ -80,7 +88,18 @@ def main(argv: list[str] | None = None) -> int:
         _safe_destroy(root)
         return 1
 
-    notebook = ConfigNotebook(root, catalog=catalog)
+    def _handle_font_size_change(size: int) -> None:
+        ui_settings.font_size = size
+        apply_dark_nordic_theme(root, base_font_size=size)
+        notebook.refresh_layouts()
+        save_settings(ui_settings)
+
+    notebook = ConfigNotebook(
+        root,
+        catalog=catalog,
+        font_size=ui_settings.font_size,
+        on_font_size_changed=_handle_font_size_change,
+    )
     notebook.pack(fill="both", expand=True)
 
     root.deiconify()
