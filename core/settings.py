@@ -7,7 +7,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 __all__ = ["SettingsError", "UiSettings", "load_settings", "save_settings", "settings_path"]
 
@@ -21,6 +21,7 @@ class UiSettings:
     """Serializable container for UI preferences."""
 
     font_size: int = 11
+    font_family: Optional[str] = None
 
     def clamp(self, *, minimum: int = 8, maximum: int = 24) -> None:
         """Ensure settings values stay within sensible bounds."""
@@ -28,16 +29,25 @@ class UiSettings:
             self.font_size = minimum
         elif self.font_size > maximum:
             self.font_size = maximum
+        if self.font_family is not None:
+            family = str(self.font_family).strip()
+            self.font_family = family or None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"font_size": int(self.font_size)}
+        payload: Dict[str, Any] = {"font_size": int(self.font_size)}
+        if self.font_family:
+            payload["font_family"] = self.font_family
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "UiSettings":
         size = payload.get("font_size")
         if not isinstance(size, int):
             raise SettingsError("El tamaño de fuente almacenado es inválido.")
-        instance = cls(font_size=size)
+        family = payload.get("font_family")
+        if family is not None and not isinstance(family, str):
+            raise SettingsError("La fuente guardada es inválida.")
+        instance = cls(font_size=size, font_family=family)
         instance.clamp()
         return instance
 

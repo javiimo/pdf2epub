@@ -39,6 +39,8 @@ CliPrompt = Callable[[], Optional[str]]
 ExportPrompt = Callable[[TabConfiguration], Optional[str]]
 ErrorHandler = Callable[[str], None]
 
+FONT_PREVIEW_SAMPLE = "abcABC123!? ÁÉÍÓÚ ñÑ"
+
 
 class ConfigNotebook(ttk.Frame):
     """Notebook widget that manages independent configuration tabs."""
@@ -56,7 +58,9 @@ class ConfigNotebook(ttk.Frame):
         presets: Optional[Iterable[Preset]] = None,
         preset_selector: Optional[Callable[[List[Preset]], Optional[Preset]]] = None,
         font_size: Optional[int] = None,
+        font_family: Optional[str] = None,
         on_font_size_changed: Optional[Callable[[int], None]] = None,
+        on_font_family_changed: Optional[Callable[[str], None]] = None,
         **kwargs,
     ) -> None:
         super().__init__(master, **kwargs)
@@ -90,7 +94,10 @@ class ConfigNotebook(ttk.Frame):
         self._input_controls: Dict[str, Dict[str, Any]] = {}
         self._tab_counter = 1
         self._font_size = max(8, min(24, int(font_size or 11)))
+        default_font = tkfont.nametofont("TkDefaultFont")
+        self._font_family = font_family or default_font.cget("family")
         self._on_font_size_changed = on_font_size_changed
+        self._on_font_family_changed = on_font_family_changed
         self._toolbar_buttons: List[tuple[ttk.Button, str]] = []
 
         self._build_toolbar()
@@ -492,6 +499,7 @@ class ConfigNotebook(ttk.Frame):
             ("Generar EPUB", self.generate_epub),
             ("Exportar OEB", self.export_oeb),
             ("Tamaño letra", self.change_font_size),
+            ("Fuente base", self.change_font_family),
         ]
 
         for idx, (label, command) in enumerate(buttons):
@@ -1234,3 +1242,116 @@ class ConfigNotebook(ttk.Frame):
         tab_id = self._current_tab_id()
         if tab_id:
             self._update_status(tab_id, f"Tamaño de letra actualizado a {size} pt")
+
+    def change_font_family(self) -> None:
+        try:
+            families = sorted(set(tkfont.families(self)))
+        except tk.TclError as exc:
+            self._error_handler(f"No se pudieron obtener las fuentes: {exc}")
+            return
+        if not families:
+            self._error_handler("No se encontraron fuentes instaladas.")
+            return
+
+        current_font = self._font_family or tkfont.nametofont("TkDefaultFont").cget("family")
+        selection: Dict[str, Optional[str]] = {"family": None}
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Seleccionar fuente base")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        content = ttk.Frame(dialog, padding=12)
+        content.grid(row=0, column=0, sticky="nsew")
+
+        ttk.Label(content, text="Elige una fuente:").grid(row=0, column=0, sticky="w")
+
+        list_frame = ttk.Frame(content)
+        list_frame.grid(row=1, column=0, sticky="nsew", pady=(6, 12))
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+
+        listbox = tk.Listbox(list_frame, height=12, exportselection=False)
+        listbox.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        listbox.configure(yscrollcommand=scrollbar.set)
+
+        for family in families:
+            listbox.insert(tk.END, family)
+
+        listbox.focus_set()
+
+        preview_font = tkfont.Font(family=current_font, size=max(12, self._font_size))
+        preview_label = ttk.Label(content, text=FONT_PREVIEW_SAMPLE, font=preview_font, padding=(0, 8))
+        preview_label.grid(row=2, column=0, sticky="ew")
+
+        def update_preview(*_args: Any) -> None:
+            selection_indices = listbox.curselection()
+            if not selection_indices:
+                return
+            family = families[selection_indices[0]]
+            try:
+                preview_font.configure(family=family)
+            except tk.TclError:
+                return
+
+        def confirm(event: Optional[tk.Event] = None) -> None:
+            selection_indices = listbox.curselection()
+            if not selection_indices:
+                return
+            family = families[selection_indices[0]]
+            selection["family"] = family
+            dialog.destroy()
+
+        def cancel() -> None:
+            selection["family"] = None
+            dialog.destroy()
+
+        button_bar = ttk.Frame(content)
+        button_bar.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        button_bar.columnconfigure(0, weight=1)
+        button_bar.columnconfigure(1, weight=1)
+
+        ok_button = ttk.Button(button_bar, text="Aceptar", command=confirm)
+        ok_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        cancel_button = ttk.Button(button_bar, text="Cancelar", command=cancel)
+        cancel_button.grid(row=0, column=1, sticky="ew")
+
+        listbox.bind("<<ListboxSelect>>", update_preview)
+        listbox.bind("<Double-Button-1>", confirm)
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        dialog.bind("<Return>", confirm)
+
+        try:
+            index = families.index(current_font)
+        except ValueError:
+            index = 0 if families else None
+        if index is not None and families:
+            listbox.selection_set(index)
+            listbox.see(index)
+            update_preview()
+
+        dialog.wait_window()
+
+        chosen = selection.get("family")
+        if not chosen or chosen == self._font_family:
+            return
+
+        previous = self._font_family
+        self._font_family = chosen
+        callback = self._on_font_family_changed
+        if callback is not None:
+            try:
+                callback(chosen)
+            except Exception as exc:
+                self._font_family = previous
+                self._error_handler(str(exc))
+                return
+        else:
+            self.refresh_layouts()
+
+        tab_id = self._current_tab_id()
+        if tab_id:
+            self._update_status(tab_id, f"Fuente base: {chosen}")

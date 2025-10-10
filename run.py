@@ -67,7 +67,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Aviso: {exc}", file=sys.stderr)
         ui_settings = UiSettings()
 
-    apply_dark_nordic_theme(root, base_font_size=ui_settings.font_size)
+    apply_dark_nordic_theme(
+        root,
+        base_font_size=ui_settings.font_size,
+        base_font_family=ui_settings.font_family,
+    )
 
     root.title("pdf2epub")
     root.minsize(1200, 720)
@@ -90,7 +94,21 @@ def main(argv: list[str] | None = None) -> int:
 
     def _handle_font_size_change(size: int) -> None:
         ui_settings.font_size = size
-        apply_dark_nordic_theme(root, base_font_size=size)
+        apply_dark_nordic_theme(
+            root,
+            base_font_size=size,
+            base_font_family=ui_settings.font_family,
+        )
+        notebook.refresh_layouts()
+        save_settings(ui_settings)
+
+    def _handle_font_family_change(family: str) -> None:
+        ui_settings.font_family = family
+        apply_dark_nordic_theme(
+            root,
+            base_font_size=ui_settings.font_size,
+            base_font_family=family,
+        )
         notebook.refresh_layouts()
         save_settings(ui_settings)
 
@@ -98,7 +116,9 @@ def main(argv: list[str] | None = None) -> int:
         root,
         catalog=catalog,
         font_size=ui_settings.font_size,
+        font_family=ui_settings.font_family,
         on_font_size_changed=_handle_font_size_change,
+        on_font_family_changed=_handle_font_family_change,
     )
     notebook.pack(fill="both", expand=True)
 

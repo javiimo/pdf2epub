@@ -27,18 +27,19 @@ class HtmlViewer(ttk.Frame):
         self.rowconfigure(0, weight=1)
 
         if HtmlFrame is not None:
-            self._viewer = HtmlFrame(self, messages_enabled=False)
-            self._viewer.grid(row=0, column=0, sticky="nsew")
-            self._fallback: Optional[tk.Text] = None
+            viewer = HtmlFrame(self, messages_enabled=False)
+            viewer.grid(row=0, column=0, sticky="nsew")
+            fallback: Optional[tk.Text] = None
         else:
-            text = tk.Text(self, wrap="word", height=height, state="disabled")
-            text.grid(row=0, column=0, sticky="nsew")
-            scrollbar = ttk.Scrollbar(self, orient="vertical", command=text.yview)
+            viewer = tk.Text(self, wrap="word", height=height, state="disabled")
+            viewer.grid(row=0, column=0, sticky="nsew")
+            scrollbar = ttk.Scrollbar(self, orient="vertical", command=viewer.yview)
             scrollbar.grid(row=0, column=1, sticky="ns")
-            text.configure(yscrollcommand=scrollbar.set)
-            self._viewer = text
-            self._fallback = text
-        self._font_reference = 11
+            viewer.configure(yscrollcommand=scrollbar.set)
+            fallback = viewer
+
+        self._viewer = viewer
+        self._fallback = fallback
 
     @property
     def last_path(self) -> Optional[Path]:
@@ -63,7 +64,7 @@ class HtmlViewer(ttk.Frame):
             finally:
                 self._fallback.configure(state="disabled")
 
-    def apply_font_scale(self, base_font_size: int, *, reference_size: Optional[int] = None) -> None:
+    def apply_font_scale(self, base_font_size: int) -> None:
         if self._fallback is None:
             return
         target = max(4, int(self._base_height))

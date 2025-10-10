@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 from tkinter import font as tkfont
+from typing import Optional
 
 __all__ = ["apply_dark_nordic_theme"]
 
@@ -57,8 +58,8 @@ def _apply_widget_defaults(root: tk.Misc) -> None:
         root.option_add(pattern, value)
 
 
-def _configure_fonts(root: tk.Misc, base_font_size: int) -> None:
-    """Update Tk named fonts to match the desired base size."""
+def _configure_fonts(root: tk.Misc, base_font_size: int, base_font_family: Optional[str]) -> None:
+    """Update Tk named fonts to match the desired base size and family."""
 
     size = max(8, min(24, int(base_font_size)))
     mapping = {
@@ -74,9 +75,17 @@ def _configure_fonts(root: tk.Misc, base_font_size: int) -> None:
     }
     for name, target_size in mapping.items():
         try:
-            tkfont.nametofont(name).configure(size=target_size)
+            font = tkfont.nametofont(name)
         except tk.TclError:
             continue
+        config = {"size": target_size}
+        if base_font_family:
+            config["family"] = base_font_family
+        try:
+            font.configure(**config)
+        except tk.TclError:
+            # If the chosen family is invalid, fall back silently to size-only updates.
+            font.configure(size=target_size)
 
 
 def _configure_ttk_styles(style: ttk.Style) -> None:
@@ -240,13 +249,13 @@ def _configure_ttk_styles(style: ttk.Style) -> None:
     style.configure("TSeparator", background=_COLORS["border"])
 
 
-def apply_dark_nordic_theme(root: tk.Misc, *, base_font_size: int = 11) -> None:
+def apply_dark_nordic_theme(root: tk.Misc, *, base_font_size: int = 11, base_font_family: Optional[str] = None) -> None:
     """Apply a Nord-inspired dark blue palette to the whole UI."""
 
     if isinstance(root, tk.Tk):
         root.configure(background=_COLORS["surface"])
 
     _apply_widget_defaults(root)
-    _configure_fonts(root, base_font_size)
+    _configure_fonts(root, base_font_size, base_font_family)
     style = ttk.Style(root)
     _configure_ttk_styles(style)
