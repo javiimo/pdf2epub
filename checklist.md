@@ -4,7 +4,7 @@
 - [x] Look more modern. Hay botones y campos que no respetan la paleta de color nordic blue.
 - [x] Mejorar la previsualización: permitir navegar todo el spine del OEB para ver cada capítulo tal y como quedará en el EPUB final.
 - [x] Botón para cancelar una ejecución larga de previsualización o de exportar.
- -[ ] El scroll del ratón no funciona cuando tengo el puntero sobre la sección de las opciones a seleccionar. Solo si pongo el puntero encima del scroll, me funciona con la rueda del ratón. Esto no ocurre por ejemplo con los scrolls del visor y de la consola.
+- [x] El scroll del ratón no funciona cuando tengo el puntero sobre la sección de las opciones a seleccionar. Solo si pongo el puntero encima del scroll, me funciona con la rueda del ratón. Esto no ocurre por ejemplo con los scrolls del visor y de la consola.
 - [ ] Mejorar los presets definidos por defecto (ya daré más indicaciones de cómo)
 - [ ] Poder seleccionar varios presets a la vez (si hay 2 presets que tocan la misma opción, podria añadir un warning con la resolución de conflicto, eligiendo la opción de uno o de otro)
 - [ ] Mejorar la UI: en lugar de enseñar un montón de opciones y resaltar qué hace cada una, podría ser más interesante diseñar preguntas sobre el documento y dar opciones de respuesta para que en base a esas respuestas se seleccionen las opciones. Así es mucho más interpretable para alguien que no conoce la herramienta. Algo así como un formulario con opciones.

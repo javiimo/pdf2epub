@@ -98,6 +98,8 @@ class ConfigNotebook(ttk.Frame):
         self._presets = list(presets) if presets is not None else get_presets()
         self._preset_selector = preset_selector or (lambda items: choose_preset(self, items))
         self._input_controls: Dict[str, Dict[str, Any]] = {}
+        self._scroll_areas: list[tuple[tk.Canvas, tk.Widget]] = []
+        self._global_mousewheel_bound = False
         self._tab_counter = 1
         self._font_size = max(8, min(24, int(font_size or 11)))
         default_font = tkfont.nametofont("TkDefaultFont")
@@ -163,20 +165,73 @@ class ConfigNotebook(ttk.Frame):
     def _bind_mousewheel(self, canvas: tk.Canvas, target: tk.Widget) -> None:
         """Enable mouse wheel scrolling on the provided canvas."""
 
-        def _on_mousewheel(event: tk.Event) -> str:
-            delta = event.delta
-            if delta == 0:
-                if getattr(event, "num", None) == 4:
-                    delta = 120
-                elif getattr(event, "num", None) == 5:
-                    delta = -120
-            if delta:
-                canvas.yview_scroll(int(-delta / 120), "units")
-            return "break"
+        self._scroll_areas.append((canvas, target))
+        self._ensure_global_mousewheel_binding()
 
+        def _remove_area(_: tk.Event) -> None:
+            try:
+                self._scroll_areas.remove((canvas, target))
+            except ValueError:
+                pass
+
+        canvas.bind("<Destroy>", _remove_area, add=True)
+        target.bind("<Destroy>", _remove_area, add=True)
+
+    def _ensure_global_mousewheel_binding(self) -> None:
+        if self._global_mousewheel_bound:
+            return
         for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            canvas.bind(sequence, _on_mousewheel, add=True)
-            target.bind(sequence, _on_mousewheel, add=True)
+            self.bind_all(sequence, self._handle_global_mousewheel, add=True)
+        self._global_mousewheel_bound = True
+
+    def _handle_global_mousewheel(self, event: tk.Event) -> str | None:
+        canvas = self._canvas_for_event(event)
+        if canvas is None:
+            return None
+
+        delta = getattr(event, "delta", 0)
+        if delta == 0:
+            if getattr(event, "num", None) == 4:
+                delta = 120
+            elif getattr(event, "num", None) == 5:
+                delta = -120
+        if delta:
+            canvas.yview_scroll(int(-delta / 120), "units")
+            return "break"
+        return None
+
+    def _canvas_for_event(self, event: tk.Event) -> Optional[tk.Canvas]:
+        widget = getattr(event, "widget", None)
+        candidate = self._canvas_for_widget(widget)
+        if candidate is not None:
+            return candidate
+
+        if hasattr(event, "x_root") and hasattr(event, "y_root"):
+            try:
+                widget = self.winfo_containing(int(event.x_root), int(event.y_root))
+            except tk.TclError:
+                widget = None
+            if widget is not None:
+                return self._canvas_for_widget(widget)
+
+        return None
+
+    def _canvas_for_widget(self, widget: tk.Widget | None) -> Optional[tk.Canvas]:
+        if widget is None:
+            return None
+        for canvas, target in self._scroll_areas:
+            if self._is_descendant(widget, target) or self._is_descendant(widget, canvas):
+                return canvas
+        return None
+
+    @staticmethod
+    def _is_descendant(widget: tk.Widget | None, ancestor: tk.Widget) -> bool:
+        current = widget
+        while current is not None:
+            if current is ancestor:
+                return True
+            current = getattr(current, "master", None)
+        return False
 
     def _adjust_wrap(self, label: ttk.Label, width: int, *, min_wrap: int = 200, padding: int = 24) -> None:
         if width <= padding:
