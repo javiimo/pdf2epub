@@ -66,10 +66,7 @@ class HtmlViewer(ttk.Frame):
     def apply_font_scale(self, base_font_size: int, *, reference_size: Optional[int] = None) -> None:
         if self._fallback is None:
             return
-        reference = reference_size or self._font_reference
-        size = max(1, int(base_font_size))
-        reference = max(1, int(reference))
-        target = max(4, int(round(self._base_height * reference / size)))
+        target = max(4, int(self._base_height))
         try:
             current = int(self._fallback.cget("height"))
         except (tk.TclError, ValueError, TypeError):

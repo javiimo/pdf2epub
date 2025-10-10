@@ -92,7 +92,6 @@ class ConfigNotebook(ttk.Frame):
         self._font_size = max(8, min(24, int(font_size or 11)))
         self._on_font_size_changed = on_font_size_changed
         self._toolbar_buttons: List[tuple[ttk.Button, str]] = []
-        self._console_base_heights: Dict[str, int] = {}
 
         self._build_toolbar()
         self.new_tab()
@@ -152,18 +151,8 @@ class ConfigNotebook(ttk.Frame):
 
     def _apply_text_scaling(self) -> None:
         size = max(8, min(24, int(self._font_size)))
-        reference = 11
-        for tab_id, console in self._console_widgets.items():
-            base_height = self._console_base_heights.get(tab_id, 8)
-            target_height = max(4, int(round(base_height * reference / size)))
-            try:
-                current_height = int(console.cget("height"))
-            except (tk.TclError, ValueError, TypeError):
-                current_height = target_height
-            if current_height != target_height:
-                console.configure(height=target_height)
         for viewer in self._viewer_widgets.values():
-            viewer.apply_font_scale(size, reference_size=reference)
+            viewer.apply_font_scale(size)
 
     def _start_background_job(
         self,
@@ -516,31 +505,41 @@ class ConfigNotebook(ttk.Frame):
         widget = ttk.Frame(self.notebook)
         widget.columnconfigure(0, weight=1, uniform="pane")
         widget.columnconfigure(1, weight=1, uniform="pane")
-        widget.rowconfigure(2, weight=1)
-        widget.rowconfigure(3, weight=0)
+        widget.rowconfigure(0, weight=1)
+
+        left = ttk.Frame(widget)
+        left.grid(row=0, column=0, sticky="nsew", padx=(12, 6), pady=12)
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(2, weight=1)
+
+        right = ttk.Frame(widget)
+        right.grid(row=0, column=1, sticky="nsew", padx=(6, 12), pady=12)
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(0, weight=3)
+        right.rowconfigure(1, weight=1)
 
         tab_widget_id = str(widget)
 
         summary = ttk.Label(
-            widget,
+            left,
             text=self._format_summary(config),
             padding=12,
             justify="left",
             anchor="nw",
             wraplength=600,
         )
-        summary.grid(row=0, column=0, columnspan=2, sticky="ew")
+        summary.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         summary.bind(
             "<Configure>",
             lambda event, label=summary: self._adjust_wrap(label, event.width, min_wrap=260),
             add="+",
         )
 
-        self._create_input_controls(widget, config, tab_widget_id)
-        self._create_side_panel(widget, tab_widget_id)
+        self._create_input_controls(left, config, tab_widget_id)
+        self._create_side_panel(right, tab_widget_id)
 
-        form_container = ttk.Frame(widget)
-        form_container.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 12))
+        form_container = ttk.Frame(left)
+        form_container.grid(row=2, column=0, sticky="nsew")
         form_container.columnconfigure(0, weight=1)
         form_container.rowconfigure(0, weight=1)
 
@@ -574,8 +573,8 @@ class ConfigNotebook(ttk.Frame):
         )
         form.grid(row=0, column=0, sticky="nsew")
 
-        status = ttk.Label(widget, text="Listo", anchor="w", padding=(12, 6), wraplength=400, justify="left")
-        status.grid(row=3, column=0, columnspan=2, sticky="ew")
+        status = ttk.Label(left, text="Listo", anchor="w", padding=(12, 6), wraplength=400, justify="left")
+        status.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         status.bind(
             "<Configure>",
             lambda event, label=status: self._adjust_wrap(label, event.width, min_wrap=200),
@@ -620,7 +619,7 @@ class ConfigNotebook(ttk.Frame):
         tab_widget_id: str,
     ) -> None:
         frame = ttk.LabelFrame(parent, text="Entrada PDF")
-        frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 12))
+        frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(1, weight=1)
 
         path_var = tk.StringVar(value=str(config.input_pdf or ""))
@@ -673,13 +672,11 @@ class ConfigNotebook(ttk.Frame):
             controls["suspend"] = False
 
     def _create_side_panel(self, parent: ttk.Frame, tab_widget_id: str) -> None:
-        panel = ttk.Frame(parent)
-        panel.grid(row=2, column=1, sticky="nsew", padx=(6, 12), pady=(0, 12))
-        panel.rowconfigure(0, weight=3)
-        panel.rowconfigure(1, weight=2)
-        panel.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=3)
+        parent.rowconfigure(1, weight=1)
+        parent.columnconfigure(0, weight=1)
 
-        viewer_frame = ttk.LabelFrame(panel, text="Visor HTML")
+        viewer_frame = ttk.LabelFrame(parent, text="Visor HTML")
         viewer_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
         viewer_frame.columnconfigure(0, weight=1)
         viewer_frame.rowconfigure(0, weight=1)
@@ -694,7 +691,7 @@ class ConfigNotebook(ttk.Frame):
         )
         reload_button.grid(row=1, column=0, sticky="w", padx=6, pady=6)
 
-        console_frame = ttk.LabelFrame(panel, text="Consola")
+        console_frame = ttk.LabelFrame(parent, text="Consola")
         console_frame.grid(row=1, column=0, sticky="nsew")
         console_frame.rowconfigure(0, weight=1)
         console_frame.columnconfigure(0, weight=1)
@@ -707,11 +704,6 @@ class ConfigNotebook(ttk.Frame):
 
         self._viewer_widgets[tab_widget_id] = viewer
         self._console_widgets[tab_widget_id] = console
-        try:
-            base_height = int(console.cget("height"))
-        except (tk.TclError, ValueError, TypeError):
-            base_height = 8
-        self._console_base_heights[tab_widget_id] = max(4, base_height)
         viewer.apply_font_scale(self._font_size)
 
     def _append_console(self, tab_widget_id: str, message: str, *, clear: bool = False) -> None:
