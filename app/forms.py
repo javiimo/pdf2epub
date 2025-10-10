@@ -37,6 +37,9 @@ class Tooltip:
         widget.bind("<Enter>", self._show)
         widget.bind("<Leave>", self._hide)
 
+    def set_text(self, text: str) -> None:
+        self.text = text
+
     def _show(self, event: tk.Event) -> None:  # pragma: no cover - UI behaviour
         if not self.text or self.tipwindow is not None:
             return
@@ -187,6 +190,7 @@ class OptionField:
         Tooltip(self.help_label, self.tooltip_text)
 
         self.error_label = ttk.Label(master, text="", wraplength=240, anchor="w", justify="left")
+        self._error_tooltip = Tooltip(self.error_label, "")
 
     def grid(self, row: int) -> None:
         self.label.grid(row=row, column=0, sticky="w", padx=(4, 6), pady=2)
@@ -324,6 +328,8 @@ class OptionField:
         text = " | ".join(messages)
         self.error_label.configure(text=text)
         self.error_label.configure(style="Error.TLabel" if text else "TLabel")
+        if getattr(self, "_error_tooltip", None) is not None:
+            self._error_tooltip.set_text(text)
 
 
 class CategoryForm(ttk.LabelFrame):
