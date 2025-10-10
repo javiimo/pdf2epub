@@ -655,7 +655,7 @@ class ConfigNotebook(ttk.Frame):
         entry.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=4)
         browse = ttk.Button(
             frame,
-            text="Seleccionar…",
+            text="Seleccionar...",
             command=lambda tab_id=tab_widget_id: self._browse_input_pdf(tab_id),
         )
         browse.grid(row=0, column=2, sticky="e", padx=(0, 8), pady=4)

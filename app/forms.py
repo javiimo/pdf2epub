@@ -172,7 +172,7 @@ class OptionField:
             self.widget = ttk.Frame(master)
             entry = ttk.Entry(self.widget, textvariable=self.var)
             entry.pack(side="left", fill="x", expand=True)
-            button = ttk.Button(self.widget, text="Explorar…", command=self._on_path_browse)
+            button = ttk.Button(self.widget, text="Explorar...", command=self._on_path_browse)
             button.pack(side="right", padx=(4, 0))
             self._register_widget(entry, "normal")
             self._register_widget(button, "normal")
@@ -183,7 +183,7 @@ class OptionField:
             self.var.trace_add("write", self._on_variable_change)
             self._register_widget(self.widget, "normal")
 
-        self.help_label = ttk.Label(master, text="❓", width=2, anchor="center")
+        self.help_label = ttk.Label(master, text="?", width=2, anchor="center")
         Tooltip(self.help_label, self.tooltip_text)
 
         self.error_label = ttk.Label(master, text="", wraplength=240, anchor="w", justify="left")
