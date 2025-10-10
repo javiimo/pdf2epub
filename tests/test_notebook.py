@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -314,6 +315,43 @@ def test_preview_success_updates_console_and_state(tmp_path, root, prompts):
     assert "Warnings" in status
 
 
+def test_cancel_preview_marks_status(tmp_path, root, prompts):
+    started = threading.Event()
+
+    def preview_runner(config: TabConfiguration, cancel_event: threading.Event) -> PreviewResult:
+        started.set()
+        while not cancel_event.is_set():
+            time.sleep(0.01)
+        raise PreviewError(
+            "cancelled",
+            command=[],
+            stdout="",
+            stderr="",
+            returncode=None,
+        )
+
+    notebook = build_notebook(root, prompts, preview_runner=preview_runner)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
+    input_pdf = tmp_path / "cancel.pdf"
+    input_pdf.write_bytes(b"%PDF-1.4")
+    config.input_pdf = input_pdf
+
+    notebook.preview_current_tab()
+    assert started.wait(1.0), "preview runner did not start"
+
+    notebook.cancel_current_job()
+    wait_for_jobs(root, notebook)
+
+    console = notebook._console_widgets[tab_id]
+    text = console.get("1.0", tk.END)
+    assert "Cancelando tarea en curso" in text
+    assert "Tarea cancelada por el usuario" in text
+    status = notebook._status_labels[tab_id].cget("text")
+    assert "Tarea cancelada" in status
+
+
 def test_preview_navigation_allows_chapter_switch(tmp_path, root, prompts):
     def preview_runner(config: TabConfiguration) -> PreviewResult:
         workspace_path = tmp_path / "ws-nav"
@@ -362,7 +400,7 @@ def test_preview_navigation_allows_chapter_switch(tmp_path, root, prompts):
     assert viewer.last_path == (tmp_path / "oeb-nav" / "chapter1.xhtml")
 
     controls = notebook._spine_controls[tab_id]
-    assert controls["combo"].cget("state") == "readonly"
+    assert str(controls["combo"].cget("state")) == "readonly"
     assert controls["prev"].instate(("disabled",))
     assert not controls["next"].instate(("disabled",))
 

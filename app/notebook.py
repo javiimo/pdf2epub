@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import os
 import queue
 import shlex
@@ -13,7 +14,7 @@ import time
 import textwrap
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, cast
 from uuid import uuid4
 
 import tkinter as tk
@@ -42,6 +43,9 @@ ErrorHandler = Callable[[str], None]
 
 FONT_PREVIEW_SAMPLE = "abcABC123!? ÁÉÍÓÚ ñÑ"
 
+PreviewRunnerCallable = Callable[[TabConfiguration, threading.Event], PreviewResult]
+ConversionRunnerCallable = Callable[[TabConfiguration, Path, threading.Event], ConversionResult]
+
 
 class ConfigNotebook(ttk.Frame):
     """Notebook widget that manages independent configuration tabs."""
@@ -54,8 +58,8 @@ class ConfigNotebook(ttk.Frame):
         cli_prompt: Optional[CliPrompt] = None,
         export_prompt: Optional[ExportPrompt] = None,
         error_handler: Optional[ErrorHandler] = None,
-        preview_runner: Optional[Callable[[TabConfiguration], PreviewResult]] = None,
-        conversion_runner: Optional[Callable[[TabConfiguration, Path], ConversionResult]] = None,
+        preview_runner: Optional[Callable[..., PreviewResult]] = None,
+        conversion_runner: Optional[Callable[..., ConversionResult]] = None,
         presets: Optional[Iterable[Preset]] = None,
         preset_selector: Optional[Callable[[List[Preset]], Optional[Preset]]] = None,
         font_size: Optional[int] = None,
@@ -89,8 +93,8 @@ class ConfigNotebook(ttk.Frame):
         self._spine_controls: Dict[str, Dict[str, Any]] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
         self._running_jobs: Dict[str, dict] = {}
-        self._preview_runner = preview_runner
-        self._conversion_runner = conversion_runner
+        self._preview_runner = self._wrap_preview_runner(preview_runner)
+        self._conversion_runner = self._wrap_conversion_runner(conversion_runner)
         self._presets = list(presets) if presets is not None else get_presets()
         self._preset_selector = preset_selector or (lambda items: choose_preset(self, items))
         self._input_controls: Dict[str, Dict[str, Any]] = {}
@@ -101,9 +105,58 @@ class ConfigNotebook(ttk.Frame):
         self._on_font_size_changed = on_font_size_changed
         self._on_font_family_changed = on_font_family_changed
         self._toolbar_buttons: List[tuple[ttk.Button, str]] = []
+        self._cancel_button: Optional[ttk.Button] = None
 
         self._build_toolbar()
+        self.notebook.bind("<<NotebookTabChanged>>", lambda _event: self._update_cancel_button_state())
         self.new_tab()
+        self._update_cancel_button_state()
+
+    @staticmethod
+    def _runner_accepts_argument(runner: Callable[..., Any], position: int) -> bool:
+        try:
+            signature = inspect.signature(runner)
+        except (TypeError, ValueError):
+            return False
+        params = list(signature.parameters.values())
+        if any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in params[position:]):
+            return True
+        if len(params) > position:
+            candidate = params[position]
+            if candidate.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _wrap_preview_runner(
+        runner: Optional[Callable[..., PreviewResult]]
+    ) -> Optional[PreviewRunnerCallable]:
+        if runner is None:
+            return None
+        if ConfigNotebook._runner_accepts_argument(runner, 1):
+            return cast(PreviewRunnerCallable, runner)
+
+        def _wrapped(config: TabConfiguration, _: threading.Event) -> PreviewResult:
+            return runner(config)  # type: ignore[misc]
+
+        return _wrapped
+
+    @staticmethod
+    def _wrap_conversion_runner(
+        runner: Optional[Callable[..., ConversionResult]]
+    ) -> Optional[ConversionRunnerCallable]:
+        if runner is None:
+            return None
+        if ConfigNotebook._runner_accepts_argument(runner, 2):
+            return cast(ConversionRunnerCallable, runner)
+
+        def _wrapped(config: TabConfiguration, target: Path, _: threading.Event) -> ConversionResult:
+            return runner(config, target)  # type: ignore[misc]
+
+        return _wrapped
 
     # -- Public API -----------------------------------------------------
 
@@ -158,6 +211,13 @@ class ConfigNotebook(ttk.Frame):
             if wrapped != button.cget("text"):
                 button.configure(text=wrapped)
 
+    def _update_cancel_button_state(self) -> None:
+        if self._cancel_button is None:
+            return
+        tab_id = self._current_tab_id()
+        running = tab_id is not None and self.has_running_job(tab_id)
+        self._cancel_button.configure(state=tk.NORMAL if running else tk.DISABLED)
+
     def _apply_text_scaling(self) -> None:
         size = max(8, min(24, int(self._font_size)))
         for viewer in self._viewer_widgets.values():
@@ -168,7 +228,7 @@ class ConfigNotebook(ttk.Frame):
         tab_id: str,
         *,
         job_name: str,
-        runner: Callable[[Callable[[str, Any], None]], Any],
+        runner: Callable[[Callable[[str, Any], None], threading.Event], Any],
         on_success: Callable[[Any], None],
         on_error: Callable[[Exception], None],
     ) -> bool:
@@ -177,13 +237,14 @@ class ConfigNotebook(ttk.Frame):
             return False
 
         task_queue: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+        cancel_event = threading.Event()
 
         def send(kind: str, payload: Any) -> None:
             task_queue.put((kind, payload))
 
         def worker() -> None:
             try:
-                result = runner(send)
+                result = runner(send, cancel_event)
             except Exception as exc:  # pragma: no cover - handled in UI thread
                 task_queue.put(("__error__", exc))
             else:
@@ -195,10 +256,14 @@ class ConfigNotebook(ttk.Frame):
             "on_success": on_success,
             "on_error": on_error,
             "job_name": job_name,
+            "cancel_event": cancel_event,
+            "processes": [],
         }
         self._running_jobs[tab_id] = state
+        setattr(send, "cancel_event", cancel_event)
         state["thread"].start()
         self.after(25, lambda: self._poll_job_queue(tab_id))
+        self._update_cancel_button_state()
         return True
 
     def _poll_job_queue(self, tab_id: str) -> None:
@@ -216,15 +281,23 @@ class ConfigNotebook(ttk.Frame):
                 break
 
             if kind == "__result__":
+                cancelled = state["cancel_event"].is_set()
                 self._running_jobs.pop(tab_id, None)
                 try:
-                    state["on_success"](payload)
+                    if cancelled:
+                        self._handle_job_cancelled(tab_id)
+                    else:
+                        state["on_success"](payload)
                 finally:
                     should_reschedule = False
             elif kind == "__error__":
+                cancelled = state["cancel_event"].is_set()
                 self._running_jobs.pop(tab_id, None)
                 try:
-                    state["on_error"](payload)
+                    if cancelled:
+                        self._handle_job_cancelled(tab_id)
+                    else:
+                        state["on_error"](payload)
                 finally:
                     should_reschedule = False
             elif kind == "stream":
@@ -238,13 +311,54 @@ class ConfigNotebook(ttk.Frame):
             elif kind == "status":
                 self._update_status(tab_id, str(payload))
 
-        if should_reschedule and tab_id in self._running_jobs:
+        if tab_id not in self._running_jobs:
+            self._update_cancel_button_state()
+        elif should_reschedule:
             self.after(50, lambda: self._poll_job_queue(tab_id))
+        else:
+            self._update_cancel_button_state()
 
+    def _handle_job_cancelled(self, tab_id: str) -> None:
+        self._append_console(tab_id, "[INFO] Tarea cancelada por el usuario.")
+        self._update_status(tab_id, "Tarea cancelada por el usuario.")
+
+    def _register_job_process(self, tab_id: str, process: subprocess.Popen[Any]) -> None:
+        state = self._running_jobs.get(tab_id)
+        if not state:
+            return
+        processes: List[subprocess.Popen[Any]] = state.setdefault("processes", [])
+        processes.append(process)
+        cancel_event: threading.Event = state["cancel_event"]
+        if cancel_event.is_set():
+            self._terminate_process(process)
+
+    def _unregister_job_process(self, tab_id: str, process: subprocess.Popen[Any]) -> None:
+        state = self._running_jobs.get(tab_id)
+        if not state:
+            return
+        processes: List[subprocess.Popen[Any]] = state.get("processes", [])
+        if process in processes:
+            processes.remove(process)
+
+    def _terminate_process(self, process: subprocess.Popen[Any]) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            process.terminate()
+        except OSError:
+            return
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
     def _make_streaming_run(
         self,
         tab_id: str,
         send: Callable[[str, Any], None],
+        cancel_event: threading.Event,
     ) -> Callable[..., subprocess.CompletedProcess]:
         def _runner(
             command: Sequence[str],
@@ -257,6 +371,7 @@ class ConfigNotebook(ttk.Frame):
             return self._stream_subprocess(
                 tab_id,
                 send,
+                cancel_event,
                 command,
                 capture_output=capture_output,
                 text=text,
@@ -270,6 +385,7 @@ class ConfigNotebook(ttk.Frame):
         self,
         tab_id: str,
         send: Callable[[str, Any], None],
+        cancel_event: threading.Event,
         command: Sequence[str],
         *,
         capture_output: bool,
@@ -323,16 +439,20 @@ class ConfigNotebook(ttk.Frame):
         stdout_thread.start()
         stderr_thread.start()
 
-        returncode = process.wait()
-        stdout_thread.join()
-        stderr_thread.join()
+        self._register_job_process(tab_id, process)
+        try:
+            returncode = process.wait()
+            stdout_thread.join()
+            stderr_thread.join()
 
-        stdout = "".join(stdout_chunks)
-        stderr = "".join(stderr_chunks)
-        completed = subprocess.CompletedProcess(list(command), returncode, stdout, stderr)
-        if check and returncode != 0:
-            raise subprocess.CalledProcessError(returncode, list(command), stdout, stderr)
-        return completed
+            stdout = "".join(stdout_chunks)
+            stderr = "".join(stderr_chunks)
+            completed = subprocess.CompletedProcess(list(command), returncode, stdout, stderr)
+            if check and returncode != 0:
+                raise subprocess.CalledProcessError(returncode, list(command), stdout, stderr)
+            return completed
+        finally:
+            self._unregister_job_process(tab_id, process)
 
     def new_tab(self) -> Optional[str]:
         """Create a brand new configuration tab."""
@@ -346,6 +466,28 @@ class ConfigNotebook(ttk.Frame):
         if tab_id is not None:
             return tab_id in self._running_jobs
         return bool(self._running_jobs)
+
+    def cancel_current_job(self) -> None:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para cancelar.")
+            return
+        state = self._running_jobs.get(tab_id)
+        if not state:
+            self._append_console(tab_id, "[INFO] No hay tarea en ejecución que cancelar.")
+            self._update_status(tab_id, "No hay tarea en ejecución que cancelar.")
+            self._update_cancel_button_state()
+            return
+        cancel_event: threading.Event = state["cancel_event"]
+        if cancel_event.is_set():
+            return
+        cancel_event.set()
+        self._append_console(tab_id, "[INFO] Cancelando tarea en curso…")
+        self._update_status(tab_id, "Cancelando tarea en curso…")
+        processes: List[subprocess.Popen[Any]] = list(state.get("processes", []))
+        for process in processes:
+            self._terminate_process(process)
+        self._update_cancel_button_state()
 
     def clone_current_tab(self) -> Optional[str]:
         tab_id = self._current_tab_id()
@@ -498,6 +640,7 @@ class ConfigNotebook(ttk.Frame):
             ("Importar línea CLI", self.import_cli_line),
             ("Exportar", self.export_current_tab),
             ("Previsualizar", self.preview_current_tab),
+            ("Cancelar tarea", self.cancel_current_job),
             ("Generar EPUB", self.generate_epub),
             ("Exportar OEB", self.export_oeb),
             ("Tamaño letra", self.change_font_size),
@@ -510,6 +653,9 @@ class ConfigNotebook(ttk.Frame):
             button.configure(takefocus=True)
             self.toolbar.grid_columnconfigure(idx, weight=1)
             self._toolbar_buttons.append((button, label))
+            if label == "Cancelar tarea":
+                self._cancel_button = button
+                button.configure(state=tk.DISABLED)
 
     def _add_tab(self, config: TabConfiguration) -> str:
         widget = ttk.Frame(self.notebook)
@@ -1039,14 +1185,14 @@ class ConfigNotebook(ttk.Frame):
         start = time.perf_counter()
         streaming_enabled = self._preview_runner is None
 
-        def runner(send: Callable[[str, Any], None]) -> PreviewResult:
+        def runner(send: Callable[[str, Any], None], cancel_event: threading.Event) -> PreviewResult:
             if self._preview_runner is None:
                 return run_preview(
                     config,
                     catalog=self.catalog,
-                    run=self._make_streaming_run(tab_id, send),
+                    run=self._make_streaming_run(tab_id, send, cancel_event),
                 )
-            return self._preview_runner(config)
+            return self._preview_runner(config, cancel_event)
 
         def on_success(result: PreviewResult) -> None:
             self._cleanup_preview_state(tab_id)
@@ -1122,15 +1268,15 @@ class ConfigNotebook(ttk.Frame):
         start = time.perf_counter()
         streaming_enabled = self._conversion_runner is None
 
-        def runner(send: Callable[[str, Any], None]) -> ConversionResult:
+        def runner(send: Callable[[str, Any], None], cancel_event: threading.Event) -> ConversionResult:
             if self._conversion_runner is None:
                 return run_epub(
                     config,
                     target_path,
                     catalog=self.catalog,
-                    run=self._make_streaming_run(tab_id, send),
+                    run=self._make_streaming_run(tab_id, send, cancel_event),
                 )
-            return self._conversion_runner(config, target_path)
+            return self._conversion_runner(config, target_path, cancel_event)
 
         def on_success(result: ConversionResult) -> None:
             include_streams = not streaming_enabled

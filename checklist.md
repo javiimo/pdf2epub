@@ -3,7 +3,7 @@
 - [x] Arreglar que para ver la descripción sale "\u2" o algo así en lo que entiendo que debería ser un icono me parece.
 - [x] Look more modern. Hay botones y campos que no respetan la paleta de color nordic blue.
 - [x] Mejorar la previsualización: permitir navegar todo el spine del OEB para ver cada capítulo tal y como quedará en el EPUB final.
-- [ ] Botón para cancelar una ejecución larga de previsualización o de exportar.
+- [x] Botón para cancelar una ejecución larga de previsualización o de exportar.
  -[ ] El scroll del ratón no funciona cuando tengo el puntero sobre la sección de las opciones a seleccionar. Solo si pongo el puntero encima del scroll, me funciona con la rueda del ratón. Esto no ocurre por ejemplo con los scrolls del visor y de la consola.
 - [ ] Mejorar los presets definidos por defecto (ya daré más indicaciones de cómo)
 - [ ] Poder seleccionar varios presets a la vez (si hay 2 presets que tocan la misma opción, podria añadir un warning con la resolución de conflicto, eligiendo la opción de uno o de otro)

@@ -76,11 +76,20 @@ def run_preview(
     active_catalog = _ensure_catalog(catalog)
     workspace = workspace_factory()
     try:
+        def subset_run(command: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess:
+            return run(
+                command,
+                capture_output=True,
+                text=True,
+                check=check,
+            )
+
         subset_pdf = prepare_pdf_subset(
             config.input_pdf,
             workspace=workspace.path,
             page_range=config.page_range,
             qpdf_path=qpdf_path,
+            run=subset_run,
         )
     except PdfSubsetError as exc:
         workspace.cleanup()
