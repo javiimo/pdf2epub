@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 from app.notebook import ConfigNotebook
+from app.theme import apply_dark_nordic_theme
 from core.options.catalog import Catalog, CatalogError, get_catalog, load_catalog
 from core.runner.dependencies import MissingDependencyError, verify_required_binaries
 
@@ -43,6 +44,13 @@ def _load_catalog(path: Path | None) -> Catalog:
     return load_catalog(path)
 
 
+def _safe_destroy(widget: tk.Misc) -> None:
+    try:
+        widget.destroy()
+    except tk.TclError:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
@@ -51,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     except tk.TclError as exc:
         print(f"No se pudo inicializar Tk: {exc}", file=sys.stderr)
         return 1
+    apply_dark_nordic_theme(root)
 
     root.title("pdf2epub")
     root.minsize(1200, 720)
@@ -61,14 +70,14 @@ def main(argv: list[str] | None = None) -> int:
             alert_callback=lambda message, missing: _show_dependency_alert(root, message, missing)
         )
     except MissingDependencyError:
-        root.destroy()
+        _safe_destroy(root)
         return 1
 
     try:
         catalog = _load_catalog(args.catalog)
     except CatalogError as exc:
         messagebox.showerror("Catálogo inválido", str(exc), parent=root)
-        root.destroy()
+        _safe_destroy(root)
         return 1
 
     notebook = ConfigNotebook(root, catalog=catalog)
@@ -80,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        root.destroy()
+        _safe_destroy(root)
     return 0
 
 

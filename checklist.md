@@ -1,19 +1,6 @@
-- [x] Inicializa repo y entorno. Estructura: app/ (UI), core/ (runner, parser, presets), tests/, assets/.
-- [x] Verifica binarios: ebook-convert y qpdf en $PATH. Muestra alerta si faltan.
-- [x] Módulo de opciones: define un “catálogo” JSON/YAML con metadatos de cada flag: nombre CLI, tipo, dominio de valores, descripción breve, categoría, dependencias.
-- [x] Capa de serialización: carga/guarda una “configuración” por pestaña en JSON.
-- [x] Motor temporal: usa tempfile.TemporaryDirectory(prefix="pdf2epub-"). Registra atexit y limpieza en arranque de restos del prefijo.
-- [x] Pestañas con ttk.Notebook: cada pestaña = una configuración independiente. Botones “Nueva”, “Clonar”, “Importar línea CLI”, “Exportar”.
-- [x] Formularios por categorías: Look & Feel, Heuristics, Search & Replace, Structure, TOC, Metadata, Debug, PDF Input, EPUB Output, Perfiles. Widgets con tooltips.
-- [x] Validador de entradas: tipos numéricos, rutas, regex/XPath, enum. Señaliza dependencias (p.ej., mostrar disables de heuristics solo si --enable-heuristics).
-- [x] Selector de archivo de entrada PDF y rango de páginas.
-- [x] Subconjunto de páginas: si se define rango, invoca qpdf --pages IN N-M -- OUT.pdf en tmp antes de convertir.
-- [x] Botón “Previsualizar”: ejecuta ebook-convert IN.pdf OUT_DIR_OEB (sin extensión) con flags de la pestaña; captura stdout/stderr en una consola lateral.
-- [x] Parser OPF: abre content.opf en OUT_DIR_OEB, lee el spine y determina el primer HTML a mostrar.
-- [x] Visor HTML: integra tkinterweb (o cefpython3 si prefieres Chromium). Carga el HTML del spine; soporta recarga rápida.
-- [x] Botón “Generar EPUB”: ejecuta ebook-convert IN.pdf OUT.epub con los mismos flags. Pregunta destino y escribe solo a demanda.
-- [x] Botón “Exportar OEB”: opcional para inspección avanzada.
-- [x] Importar línea CLI: parsea una cadena ebook-convert entrada salida [opciones] y vuelca flags al formulario.
-- [x] Presets: crea perfiles rápidos por dispositivo (--output-profile) y por “PDF técnico 1-columna”, “con fórmulas”, etc. Permite guardar perfiles que no son esos predeterminados.
-- [x] Barra de estado: tiempo de ejecución, warnings detectados, tamaño resultante.
-- [x] Empaquetado: script run.py, requisitos, y documentación rápida.
+- [x] Cambiar la paleta de colores a dark nordic blue
+- [ ] Añadir botón para cambio de tamaño de letra y persistir estos cambios de configuración entre runs.
+- [ ] Look more modern.
+- [ ] Arreglar que para ver la descripción sale "\ua" en lo que entiendo que debería ser un icono o algo así.
+- [ ] Mejorar los presets (ya daré más indicaciones de cómo)
+- [ ] Mejorar la UI: en lugar de enseñar un montón de opciones y resaltar qué hace cada una, podría ser más interesante diseñar preguntas sobre el documento y dar opciones de respuesta para que en base a esas respuestas se seleccionen las opciones. Así es mucho más interpretable para alguien que no conoce la herramienta. Algo así como un formulario con opciones.
