@@ -15,7 +15,8 @@ ebook-convert in.pdf out.epub \
   --keep-ligatures --embed-all-fonts \
   --disable-unwrap-lines --dont-split-on-page-breaks \
   --minimum-line-height 1.25
-- [ ] CUando selecciono muchas opciones el recuadro se hace demasiado grande y se sale de la pantalla el botón de aceptar. Añadir un scroll a la descripción de los presets seleccionados.
+- [x] CUando selecciono muchas opciones del preset el recuadro se hace demasiado grande y se sale de la pantalla el botón de aceptar. Añadir un scroll a la descripción de los presets seleccionados.
+- [ ] Añadir opción de borrar una configuración (eliminarla y si solo hay 1 abierta, que se quede como una nueva)
 - [ ] Limpiar opciones no soportadas o actualizar la versión de mi cli. Por qué tengo opciones no soportadas?
 - [ ] Mejorar la implementación de fórmulas matemáticas.
 - [ ] Mejorar la UI: en lugar de enseñar un montón de opciones y resaltar qué hace cada una, podría ser más interesante diseñar preguntas sobre el documento y dar opciones de respuesta para que en base a esas respuestas se seleccionen las opciones. Así es mucho más interpretable para alguien que no conoce la herramienta. Algo así como un formulario con opciones.

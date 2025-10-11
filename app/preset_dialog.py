@@ -28,6 +28,7 @@ class _PresetDialog(simpledialog.Dialog):
     def body(self, master: tk.Misc):
         master.columnconfigure(0, weight=1)
         master.rowconfigure(2, weight=1)
+        master.rowconfigure(3, weight=1)
 
         ttk.Label(
             master,
@@ -51,8 +52,26 @@ class _PresetDialog(simpledialog.Dialog):
             layer = _LAYER_LABELS.get(preset.layer, preset.layer.capitalize())
             self._listbox.insert(index, f"{preset.name} · {layer}")
 
-        self._description = ttk.Label(master, text="", wraplength=360, justify="left")
-        self._description.grid(row=3, column=0, columnspan=2, sticky="ew", padx=8, pady=(6, 8))
+        description_frame = ttk.Frame(master)
+        description_frame.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=8, pady=(6, 8))
+        description_frame.columnconfigure(0, weight=1)
+        description_frame.rowconfigure(0, weight=1)
+
+        self._description = tk.Text(
+            description_frame,
+            wrap="word",
+            height=8,
+            state="disabled",
+            borderwidth=0,
+            highlightthickness=0,
+        )
+        self._description.grid(row=0, column=0, sticky="nsew")
+
+        description_scrollbar = ttk.Scrollbar(
+            description_frame, orient="vertical", command=self._description.yview
+        )
+        description_scrollbar.grid(row=0, column=1, sticky="ns")
+        self._description.configure(yscrollcommand=description_scrollbar.set)
 
         if self._presets:
             self._listbox.selection_set(0)
@@ -97,7 +116,10 @@ class _PresetDialog(simpledialog.Dialog):
 
     def _update_description(self, indices: Sequence[int]) -> None:
         summary = self._format_summary(indices)
-        self._description.configure(text=summary)
+        self._description.configure(state="normal")
+        self._description.delete("1.0", tk.END)
+        self._description.insert("1.0", summary)
+        self._description.configure(state="disabled")
 
     def apply(self) -> None:
         selection = sorted(self._listbox.curselection())
