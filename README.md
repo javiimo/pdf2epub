@@ -1,3 +1,10 @@
+# Summary
+
+Construyo una app en Python/Tkinter para experimentar con opciones de `ebook-convert` y previsualizar el **OEB/HTML** intermedio, generando el **EPUB solo bajo demanda**. El objetivo es leer un PDF técnico en un Kobo Clara con texto refluido, pero **renderizando como imagen** todo lo que el reflow rompe: fórmulas (en línea y en bloque) y tablas. Para ello quiero incorporar un módulo de detección de regiones “problemáticas” y un pipeline de recorte y rasterizado a 360–420 dpi. El resto del documento sigue el flujo normal de Calibre con tus presets (output-profile=kobo, EPUB3, fuentes incrustadas, heurísticos ajustados).
+
+Integración: 1) generar PNG de cada página para **detección** (ML o heurístico); 2) con los bboxes detectados, recorta **en el PDF** y rasteriza solo esas regiones; 3) convierte el PDF a **OEB** con `ebook-convert`; 4) en el OEB, ancla por página y contexto de texto y **sustituye** los bloques afectados por `<figure><img …></figure>`; 5) aplica CSS para evitar cortes; 6) si la cobertura de “math/table” en una página supera un umbral, rasteriza la página completa; 7) muestra la previsualización en la app y solo entonces permite “Guardar EPUB”. Resultado: texto nítido y refluido donde es posible, y fórmulas/tablones perfectos donde no.
+
+
 # pdf2epub
 
 Interfaz en Tk para orquestar conversiones PDF→EPUB sobre la CLI de Calibre (`ebook-convert`).  

@@ -2,6 +2,8 @@
 
 Objetivo. Construir una GUI en Python/Tkinter para explorar y comparar configuraciones de ebook-convert al convertir PDF→EPUB. La app gestiona múltiples “config tabs”, previsualiza el HTML intermedio (OEB) leyendo el content.opf y renderizando el primer elemento del spine, y solo crea el .epub bajo demanda. Soporta rango de páginas recortando el PDF previo con qpdf.
 
+Buscamos detectar formulas (tanto inline como en líneas aparte) y tablas con un modelo de layout sobre PNGs de las páginas. Fusionar cajas. Rasterizar solo esas cajas a 360–420 dpi. Inserta <img> en el OEB antes de empaquetar EPUB3.
+
 Tecnologías. Python 3.10+, Tkinter/ttk (ttk.Notebook), tkinterweb como visor HTML, subprocess para invocar ebook-convert y qpdf, tempfile/atexit para temporales, pathlib/shutil, json para configs, xml.etree.ElementTree o lxml para OPF. Incluye detección y limpieza de temporales en arranque. Validación de entradas y tooltips generados desde un catálogo JSON de opciones.
 
 Tienes en ./.venv. las herramientas necesarias para ejecutar los tests y además puedes añadir las librerías y todo lo que necesites para la ejecución en ese .venv. Puedes modificarlo según tus necesidades. Para lanzar las pruebas usa directamente los ejecutables del entorno, p. ej.:
