@@ -21,6 +21,7 @@ CATEGORY_ORDER = [
     "debug",
     "pdf_input",
     "epub_output",
+    "detected",
 ]
 
 TOOLTIP_BACKGROUND = "#13284B"
@@ -485,6 +486,26 @@ class ConfigForm(ttk.Frame):
             section.columnconfigure(2, weight=0)
             section.columnconfigure(3, weight=1)
             self.sections[category] = section
+
+        processed = set(self.sections)
+        for category_id in catalog.categories:
+            if category_id in processed:
+                continue
+            section = CategoryForm(
+                self,
+                category_id=category_id,
+                catalog=catalog,
+                config=config,
+                validator=self.validator,
+                on_change=self._on_section_change,
+            )
+            row = len(self.sections)
+            section.grid(row=row, column=0, sticky="ew", padx=6, pady=6)
+            section.columnconfigure(0, weight=0)
+            section.columnconfigure(1, weight=1)
+            section.columnconfigure(2, weight=0)
+            section.columnconfigure(3, weight=1)
+            self.sections[category_id] = section
 
         self.columnconfigure(0, weight=1)
         self.after_idle(self.update_responsive_layout)

@@ -13,8 +13,16 @@ from tkinter import messagebox
 
 from app.notebook import ConfigNotebook
 from app.theme import apply_dark_nordic_theme
-from core.options.catalog import Catalog, CatalogError, get_catalog, load_catalog
+from core.options.catalog import (
+    Catalog,
+    CatalogError,
+    augment_with_detected_options,
+    get_catalog,
+    hide_unsupported_options,
+    load_catalog,
+)
 from core.runner.dependencies import MissingDependencyError, verify_required_binaries
+from core.runner.cli_support import get_cli_support_info
 from core.settings import SettingsError, UiSettings, load_settings, save_settings
 
 
@@ -91,6 +99,40 @@ def main(argv: list[str] | None = None) -> int:
         messagebox.showerror("Catálogo inválido", str(exc), parent=root)
         _safe_destroy(root)
         return 1
+
+    support_info = get_cli_support_info()
+    supported_flags = support_info.flags if support_info is not None else None
+
+    catalog, hidden_options = hide_unsupported_options(catalog, supported_flags)
+    catalog, detected_options = augment_with_detected_options(catalog, support_info)
+    if hidden_options:
+        lines = [
+            "Tu binario de ebook-convert no reconoce estas opciones y se ocultaron:",
+            "",
+        ]
+        for option in hidden_options:
+            lines.append(f"• {option.cli} — {option.description}")
+        lines.extend(
+            [
+                "",
+                "Actualiza Calibre si necesitas usar estas opciones.",
+            ]
+        )
+        messagebox.showwarning("Opciones no soportadas", "\n".join(lines), parent=root)
+    if detected_options:
+        lines = [
+            "Se detectaron opciones adicionales en tu versión de ebook-convert:",
+            "",
+        ]
+        for option in detected_options:
+            lines.append(f"• {option.cli}")
+        lines.extend(
+            [
+                "",
+                "Estas flags no existen en el catálogo oficial de la app; revisa su ayuda antes de usarlas.",
+            ]
+        )
+        messagebox.showinfo("Nuevas opciones disponibles", "\n".join(lines), parent=root)
 
     def _handle_font_size_change(size: int) -> None:
         ui_settings.font_size = size

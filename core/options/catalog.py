@@ -8,10 +8,13 @@ inputs consistently.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from core.runner.cli_support import CliSupportInfo
 
 # The catalogue is stored alongside other static assets at the project root.
 DEFAULT_CATALOG_PATH = Path(__file__).resolve().parents[2] / "assets" / "options_catalog.json"
@@ -192,6 +195,190 @@ def load_catalog(path: Optional[Path] = None) -> Catalog:
     options = _build_options(option_entries, categories)  # type: ignore[arg-type]
 
     return Catalog(version=version, categories=categories, options=options)
+
+
+def hide_unsupported_options(
+    catalog: Catalog,
+    supported_flags: Optional[Iterable[str]],
+) -> Tuple[Catalog, Tuple[OptionMetadata, ...]]:
+    """Return a catalog copy where unsupported options are hidden.
+
+    Parameters
+    ----------
+    catalog:
+        Source catalogue to inspect.
+    supported_flags:
+        Iterable with the CLI flags recognised by the current ebook-convert
+        binary. When ``None`` or empty, the catalogue is returned unchanged.
+
+    Returns
+    -------
+    Tuple[Catalog, Tuple[OptionMetadata, ...]]
+        A tuple with the filtered catalogue and an ordered tuple with the
+        options that were hidden.
+    """
+    if not supported_flags:
+        return catalog, ()
+
+    supported: Set[str] = {str(flag) for flag in supported_flags}
+    unsupported_ids: Set[str] = {
+        option.id
+        for option in catalog.options.values()
+        if not option.hidden and not any(flag in supported for flag in option.all_cli_names())
+    }
+
+    if not unsupported_ids:
+        return catalog, ()
+
+    changed = True
+    while changed:
+        changed = False
+        for option in catalog.options.values():
+            if option.hidden or option.id in unsupported_ids:
+                continue
+            for dependency_flag in option.depends_on:
+                dependency = catalog.option_by_cli(dependency_flag)
+                if dependency is None:
+                    continue
+                if dependency.id in unsupported_ids:
+                    unsupported_ids.add(option.id)
+                    changed = True
+                    break
+
+    if not unsupported_ids:
+        return catalog, ()
+
+    new_options: Dict[str, OptionMetadata] = dict(catalog.options)
+    hidden: List[OptionMetadata] = []
+    for option_id in unsupported_ids:
+        original = catalog.options.get(option_id)
+        if original is None:
+            continue
+        new_options[option_id] = replace(original, hidden=True)
+        hidden.append(original)
+
+    if not hidden:
+        return catalog, ()
+
+    hidden.sort(key=lambda opt: opt.cli)
+    filtered = Catalog(
+        version=catalog.version,
+        categories=catalog.categories,
+        options=new_options,
+    )
+    return filtered, tuple(hidden)
+
+
+_UNKNOWN_CATEGORY = CategoryMetadata(
+    id="detected",
+    label="Flags detectadas",
+    description="Opciones adicionales encontradas en tu versión de ebook-convert. Úsalas con precaución.",
+)
+
+
+_TYPE_HINTS = {
+    "int": "integer",
+    "integer": "integer",
+    "float": "float",
+    "double": "float",
+    "number": "float",
+    "path": "path",
+    "file": "path",
+    "dir": "path",
+    "directory": "path",
+    "bool": "boolean",
+    "boolean": "boolean",
+}
+
+
+def _sanitize_option_id(flag: str) -> str:
+    base = flag.lstrip("-").replace("-", "_")
+    if not base:
+        base = "flag"
+    return f"detected-{base}"
+
+
+def _infer_value_type(flag: str, help_text: str) -> str:
+    # Consider first line only for heuristics.
+    first_line = help_text.splitlines()[0] if help_text else flag
+    lower_line = first_line.lower()
+    after_flag = first_line.split(flag, 1)[-1]
+    token = after_flag.strip()
+    if not token:
+        return "boolean"
+    if token.startswith(",") or token.startswith("--"):
+        return "boolean"
+    if token.startswith("=") or token.startswith("[") or token.startswith("<"):
+        # Try to detect explicit type hints inside the token.
+        stripped = token.lstrip("=[<").rstrip(">]")
+        for hint, type_name in _TYPE_HINTS.items():
+            if hint in stripped:
+                return type_name
+        return "string"
+    # Fallback: look for explicit type keywords in the whole line.
+    for hint, type_name in _TYPE_HINTS.items():
+        if f"<{hint}>" in lower_line or hint in token.lower():
+            return type_name
+    # Default to string accepting manual input.
+    return "string"
+
+
+def augment_with_detected_options(
+    catalog: Catalog,
+    info: Optional["CliSupportInfo"],
+) -> Tuple[Catalog, Tuple[OptionMetadata, ...]]:
+    """Extend the catalogue with flags detected in the current binary."""
+
+    if info is None or not info.flags:
+        return catalog, ()
+
+    known_cli: Set[str] = set()
+    for option in catalog.options.values():
+        known_cli.update(option.all_cli_names())
+
+    detected: List[OptionMetadata] = []
+    new_options: Dict[str, OptionMetadata] = {}
+    for flag in sorted(info.flags):
+        if flag in known_cli:
+            continue
+        option_id = _sanitize_option_id(flag)
+        if option_id in catalog.options or option_id in new_options:
+            continue
+        help_text = info.help_by_flag.get(flag, flag)
+        value_type = _infer_value_type(flag, help_text)
+        description = (
+            "Detectada automáticamente a partir de la ayuda de ebook-convert.\n\n"
+            f"{help_text}"
+        )
+        option = OptionMetadata(
+            id=option_id,
+            cli=flag,
+            value_type=value_type,
+            domain=None,
+            description=description,
+            category=_UNKNOWN_CATEGORY.id,
+            depends_on=(),
+            aliases=(),
+            notes="Añadida automáticamente; revisa la ayuda oficial para confirmar parámetros.",
+            repeatable=False,
+            hidden=False,
+        )
+        detected.append(option)
+        new_options[option_id] = option
+
+    if not detected:
+        return catalog, ()
+
+    categories = dict(catalog.categories)
+    categories.setdefault(_UNKNOWN_CATEGORY.id, _UNKNOWN_CATEGORY)
+
+    options = dict(catalog.options)
+    options.update(new_options)
+
+    return (
+        Catalog(version=catalog.version, categories=categories, options=options),
+        tuple(detected),
+    )
 
 
 @lru_cache(maxsize=4)
