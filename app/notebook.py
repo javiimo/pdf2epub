@@ -23,11 +23,11 @@ from tkinter import font as tkfont
 
 from app.forms import ConfigForm
 from app.html_viewer import HtmlViewer
-from app.preset_dialog import choose_preset
+from app.preset_dialog import choose_presets
 from core.configuration import ConfigurationError, TabConfiguration, save_configuration
 from core.options.catalog import Catalog, get_catalog
 from core.parser import SpineItem
-from core.presets import Preset, apply_preset, get_presets
+from core.presets import Preset, PresetMergeReport, apply_presets, get_presets
 from core.runner.cli_parser import (
     CliParseError,
     CliParseResult,
@@ -61,7 +61,7 @@ class ConfigNotebook(ttk.Frame):
         preview_runner: Optional[Callable[..., PreviewResult]] = None,
         conversion_runner: Optional[Callable[..., ConversionResult]] = None,
         presets: Optional[Iterable[Preset]] = None,
-        preset_selector: Optional[Callable[[List[Preset]], Optional[Preset]]] = None,
+        preset_selector: Optional[Callable[[List[Preset]], List[Preset]]] = None,
         font_size: Optional[int] = None,
         font_family: Optional[str] = None,
         on_font_size_changed: Optional[Callable[[int], None]] = None,
@@ -96,7 +96,7 @@ class ConfigNotebook(ttk.Frame):
         self._preview_runner = self._wrap_preview_runner(preview_runner)
         self._conversion_runner = self._wrap_conversion_runner(conversion_runner)
         self._presets = list(presets) if presets is not None else get_presets()
-        self._preset_selector = preset_selector or (lambda items: choose_preset(self, items))
+        self._preset_selector = preset_selector or (lambda items: choose_presets(self, items))
         self._input_controls: Dict[str, Dict[str, Any]] = {}
         self._scroll_areas: list[tuple[tk.Canvas, tk.Widget]] = []
         self._global_mousewheel_bound = False
@@ -604,16 +604,40 @@ class ConfigNotebook(ttk.Frame):
             self._error_handler("No hay presets configurados.")
             return
 
-        preset = self._preset_selector(self._presets)
-        if preset is None:
+        selection = self._preset_selector(self._presets)
+        if not selection:
             return
 
         config = self._config_by_tab[tab_id]
-        apply_preset(config.options, preset)
+        report: PresetMergeReport = apply_presets(config.options, selection)
         self._forms[tab_id].sync_from_config()
         self._summary_labels[tab_id].configure(text=self._format_summary(config))
-        self._append_console(tab_id, f"[OK] Preset aplicado: {preset.name}")
-        self._update_status(tab_id, f"Preset aplicado: {preset.name}")
+        applied_names = ", ".join(preset.name for preset in report.applied) or "Ninguno"
+        self._append_console(tab_id, f"[OK] Presets aplicados: {applied_names}")
+
+        if report.conflicts:
+            for conflict in report.conflicts:
+                self._append_console(
+                    tab_id,
+                    "[WARN] "
+                    f"{conflict.option_id}: {conflict.overridden_preset} → {conflict.winning_preset} "
+                    f"({conflict.winning_value})",
+                )
+
+        if report.notes:
+            for note in report.notes:
+                self._append_console(tab_id, f"[INFO] {note}")
+
+        status_parts = [f"Presets aplicados: {applied_names}"]
+        if report.conflicts:
+            summary = ", ".join(
+                f"{conflict.option_id}→{conflict.winning_preset}" for conflict in report.conflicts
+            )
+            status_parts.append(f"Conflictos: {summary}")
+        if report.notes:
+            status_parts.append("Revisar avisos en la consola")
+
+        self._update_status(tab_id, " · ".join(status_parts))
 
     def save_preset(self) -> None:
         tab_id = self._current_tab_id()
@@ -635,7 +659,7 @@ class ConfigNotebook(ttk.Frame):
             id=f"custom-{uuid4().hex}",
             name=name.strip(),
             description=f"Preset personalizado basado en {config.title}",
-            category="custom",
+            layer="custom",
             options=copy.deepcopy(config.options),
         )
         self._presets.append(preset)

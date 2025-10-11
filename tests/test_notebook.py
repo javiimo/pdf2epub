@@ -160,13 +160,13 @@ def test_apply_preset_updates_options(root, prompts):
             id="test",
             name="Kindle",
             description="",
-            category="device",
+            layer="base",
             options={"output-profile": "kindle_pw", "base-font-size": "13"},
         )
     ]
 
     def selector(items):
-        return items[0]
+        return [items[0]]
 
     notebook = build_notebook(root, prompts, presets=presets, preset_selector=selector)
     tab_id = notebook.notebook.select()
@@ -183,7 +183,7 @@ def test_apply_preset_updates_options(root, prompts):
     field = form.sections["profiles"].fields["output-profile"]
     assert field.var.get() == "kindle_pw"
     status = notebook._status_labels[tab_id].cget("text")
-    assert "Preset aplicado" in status
+    assert "Presets aplicados" in status
 
 
 def test_save_preset_creates_custom_entry(root, prompts, monkeypatch):

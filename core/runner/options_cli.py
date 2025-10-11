@@ -11,6 +11,7 @@ from core.options.catalog import Catalog, OptionMetadata
 __all__ = ["build_option_arguments", "build_convert_command"]
 
 _FORBIDDEN_FLAGS = {"--help", "-h"}
+_EPUB_ONLY_PREFIX = "--epub-"
 
 
 def _normalize_items(config: TabConfiguration, catalog: Catalog) -> Iterable[Tuple[OptionMetadata, object]]:
@@ -78,15 +79,22 @@ def build_option_arguments(
     *,
     supported_flags: Optional[Set[str]] = None,
     skipped: Optional[List[str]] = None,
+    output_format: Optional[str] = None,
 ) -> List[str]:
     """Translate the configuration option map into CLI arguments."""
     args: List[str] = []
+    format_lower = output_format.lower() if output_format else None
     for metadata, value in _normalize_items(config, catalog):
         cli_flag = metadata.cli
         if cli_flag in _FORBIDDEN_FLAGS:
             if skipped is not None:
                 skipped.append(cli_flag)
             continue
+        if format_lower and format_lower != "epub":
+            if metadata.category == "epub_output" or cli_flag.startswith(_EPUB_ONLY_PREFIX):
+                if skipped is not None:
+                    skipped.append(cli_flag)
+                continue
         if supported_flags is not None and cli_flag not in supported_flags:
             if skipped is not None:
                 skipped.append(cli_flag)
@@ -107,9 +115,15 @@ def build_convert_command(
 ) -> List[str]:
     """Compose the full ebook-convert command line for the given config."""
     base = [executable, str(input_path), str(output_path)]
+    suffix = output_path.suffix.lower()
+    if suffix:
+        output_format = suffix.lstrip(".")
+    else:
+        output_format = "oeb"
     return base + build_option_arguments(
         config,
         catalog,
         supported_flags=supported_flags,
         skipped=skipped,
+        output_format=output_format,
     )
