@@ -32,8 +32,8 @@ from core.runner.cli_parser import (
     CliParseError,
     CliParseResult,
     parse_cli_commands,
-    tab_configuration_from_cli,
 )
+from core.runner import cli_support
 from core.runner.epub import ConversionError, ConversionResult, run_epub
 from core.runner.preview import PreviewError, PreviewResult, run_preview
 
@@ -209,7 +209,7 @@ class ConfigNotebook(ttk.Frame):
         if hasattr(event, "x_root") and hasattr(event, "y_root"):
             try:
                 widget = self.winfo_containing(int(event.x_root), int(event.y_root))
-            except tk.TclError:
+            except (tk.TclError, KeyError):
                 widget = None
             if widget is not None:
                 return self._canvas_for_widget(widget)
@@ -561,6 +561,11 @@ class ConfigNotebook(ttk.Frame):
         return self._add_tab(clone)
 
     def import_cli_line(self) -> Optional[str]:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para importar opciones.")
+            return None
+
         line = self._cli_prompt()
         if not line:
             return None
@@ -571,28 +576,65 @@ class ConfigNotebook(ttk.Frame):
             self._error_handler(str(exc))
             return None
 
-        created_tabs: List[str] = []
-        for result in results:
-            config = self._configuration_from_cli(result)
-            widget_id = self._add_tab(config)
-            created_tabs.append(widget_id)
-
-        if not created_tabs:
+        if not results:
+            self._error_handler("No se reconoció ningún comando ebook-convert.")
             return None
-        return created_tabs[-1]
 
-    def _configuration_from_cli(self, result: CliParseResult) -> TabConfiguration:
-        tab_id = self._generate_tab_id()
-        title = result.output_path.stem or tab_id
-        config = TabConfiguration(
-            tab_id=tab_id,
-            title=title,
-            input_pdf=result.input_path,
-            output_epub=result.output_path,
-            options=result.options,
-        )
-        config.title = self._ensure_unique_title(config.title)
-        return config
+        if len(results) > 1:
+            self._append_console(tab_id, "[INFO] Se detectaron múltiples comandos; se usará el primero.")
+
+        result = results[0]
+        config = self._config_by_tab[tab_id]
+
+        options = dict(result.options)
+        flag_by_option = dict(result.flag_by_option)
+        unknown_flags = list(result.unknown_flags)
+
+        unsupported_flags: List[str] = []
+        supported_flags = cli_support.get_supported_flags()
+        if supported_flags is not None:
+            for option_id, flag in list(flag_by_option.items()):
+                metadata = self.catalog.option_by_id(option_id)
+                candidates = [flag]
+                if metadata is not None:
+                    if metadata.cli not in candidates:
+                        candidates.append(metadata.cli)
+                    for alias in metadata.aliases:
+                        if alias not in candidates:
+                            candidates.append(alias)
+                if not any(candidate in supported_flags for candidate in candidates):
+                    options.pop(option_id, None)
+                    flag_by_option.pop(option_id, None)
+                    unsupported_flags.append(flag)
+
+        config.options.clear()
+        config.options.update(options)
+
+        self._forms[tab_id].sync_from_config()
+        self._summary_labels[tab_id].configure(text=self._format_summary(config))
+
+        status_parts = ["Opciones importadas desde CLI"]
+        self._append_console(tab_id, "[OK] Opciones importadas desde CLI.")
+
+        if unknown_flags:
+            summary = ", ".join(sorted(unknown_flags))
+            self._append_console(
+                tab_id,
+                f"[WARN] Se ignoraron flags desconocidas: {summary}",
+            )
+            status_parts.append("Flags desconocidas omitidas")
+
+        if unsupported_flags:
+            summary = ", ".join(sorted(unsupported_flags))
+            self._append_console(
+                tab_id,
+                f"[WARN] El binario ebook-convert no soporta: {summary}",
+            )
+            status_parts.append("Flags no soportadas omitidas")
+
+        self._update_status(tab_id, " · ".join(status_parts))
+
+        return tab_id
 
     def apply_preset(self) -> None:
         tab_id = self._current_tab_id()

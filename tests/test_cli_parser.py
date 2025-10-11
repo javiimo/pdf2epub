@@ -39,3 +39,48 @@ def test_parse_cli_commands_require_prefix():
     catalog = get_catalog()
     with pytest.raises(CliParseError):
         parse_cli_commands("--help", catalog)
+
+
+def test_parse_cli_parts_collects_unknown_flags():
+    catalog = get_catalog()
+    parts = [
+        "ebook-convert",
+        "in.pdf",
+        "out.epub",
+        "--unknown-flag=42",
+        "--base-font-size",
+        "12",
+    ]
+    result = parse_cli_parts(parts, catalog)
+    assert result.options["base-font-size"] == "12"
+    assert "--unknown-flag" in result.unknown_flags
+
+
+def test_parse_cli_parts_handles_line_continuations():
+    catalog = get_catalog()
+    parts = [
+        "ebook-convert",
+        "in.pdf",
+        "out.epub",
+        "\n",
+        "--base-font-size",
+        "12",
+        "\n",
+        "--minimum-line-height",
+        "1.2",
+    ]
+    result = parse_cli_parts(parts, catalog)
+    assert result.options["base-font-size"] == "12"
+    assert result.options["minimum-line-height"] == "1.2"
+
+
+def test_parse_cli_command_handles_backslash_newlines():
+    catalog = get_catalog()
+    cli = (
+        "ebook-convert in.pdf out.epub \\ \n"
+        "  --base-font-size 12 \\ \n"
+        "  --minimum-line-height 1.2"
+    )
+    result = parse_cli_command(cli, catalog)
+    assert result.options["base-font-size"] == "12"
+    assert result.options["minimum-line-height"] == "1.2"

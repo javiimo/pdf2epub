@@ -7,7 +7,7 @@
 - [x] El scroll del ratón no funciona cuando tengo el puntero sobre la sección de las opciones a seleccionar. Solo si pongo el puntero encima del scroll, me funciona con la rueda del ratón. Esto no ocurre por ejemplo con los scrolls del visor y de la consola.
 - [x] Mejorar los presets definidos por defecto (ya daré más indicaciones de cómo)
 - [x] Poder seleccionar varios presets a la vez (si hay 2 presets que tocan la misma opción, podria añadir un warning con la resolución de conflicto, eligiendo la opción de uno o de otro)
-- [ ] Arreglar la función de import CLI. Por ejemplo, falla con (debería adaptar el nombre in al que yo seleccione, lo único que debe coger del comando son las opciones, no el nombre del input o del output):
+- [x] Arreglar la función de import CLI. Por ejemplo, falla con (debería adaptar el nombre in al que yo seleccione, lo único que debe coger del comando son las opciones, no el nombre del input o del output):
 ebook-convert in.pdf out.epub \
   --output-profile kobo --epub-version 3 \
   --pdf-engine=pdftohtml \

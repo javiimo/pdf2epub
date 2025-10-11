@@ -108,21 +108,27 @@ def test_clone_current_tab_creates_independent_copy(root, prompts):
     assert cloned.title != current.title
 
 
-def test_import_cli_line_creates_tab_from_command(root, prompts):
+def test_import_cli_line_updates_current_tab(root, prompts, monkeypatch):
     prompts.cli_values.append(
         "ebook-convert input.pdf output.epub --base-font-size 12 --verbose"
     )
     notebook = build_notebook(root, prompts)
-
-    tab_id = notebook.import_cli_line()
-    assert tab_id is not None
-
+    tab_id = notebook.notebook.select()
     config = notebook.current_configuration()
     assert config is not None
-    assert Path(config.input_pdf) == Path("input.pdf")
-    assert Path(config.output_epub) == Path("output.epub")
-    assert config.options["base-font-size"] == "12"
-    assert config.options["verbose"] == 1
+    config.input_pdf = Path("existing.pdf")
+    config.options["minimum-line-height"] = "1.50"
+
+    monkeypatch.setattr(
+        "core.runner.cli_support.get_supported_flags",
+        lambda *a, **k: {"--base-font-size", "--verbose"},
+    )
+
+    result = notebook.import_cli_line()
+    assert result == tab_id
+
+    assert config.input_pdf == Path("existing.pdf")
+    assert config.options == {"base-font-size": "12", "verbose": 1}
 
 
 def test_import_cli_line_reports_errors(root, prompts):
@@ -134,24 +140,34 @@ def test_import_cli_line_reports_errors(root, prompts):
     assert prompts.errors
 
 
-def test_import_cli_line_supports_multiple_commands(root, prompts):
+def test_import_cli_line_skips_unsupported_flags(root, prompts, monkeypatch):
     prompts.cli_values.append(
-        "\n".join([
-            "ebook-convert in1.pdf out1.epub --verbose",
-            "ebook-convert in2.pdf out2.epub --base-font-size 14",
-        ])
+        "ebook-convert in.pdf out.epub --base-font-size 14 --verbose"
     )
     notebook = build_notebook(root, prompts)
+    tab_id = notebook.notebook.select()
+    config = notebook.current_configuration()
+    assert config is not None
 
-    tabs_before = len(notebook.notebook.tabs())
+    monkeypatch.setattr(
+        "core.runner.cli_support.get_supported_flags",
+        lambda *a, **k: {"--base-font-size"},
+    )
+
     notebook.import_cli_line()
-    tabs_after = len(notebook.notebook.tabs())
+    assert config.options == {"base-font-size": "14"}
 
-    assert tabs_after == tabs_before + 2
 
-    configs = list(notebook.configurations())
-    assert any((cfg.input_pdf and cfg.input_pdf.name == "in1.pdf") for cfg in configs)
-    assert any(cfg.options.get("base-font-size") == "14" for cfg in configs)
+def test_canvas_for_event_ignores_unknown_widget(root, prompts, monkeypatch):
+    notebook = build_notebook(root, prompts)
+    event = SimpleNamespace(widget=None, x_root=0, y_root=0)
+
+    def _raise(*_args, **_kwargs):
+        raise KeyError("document")
+
+    monkeypatch.setattr(notebook, "winfo_containing", _raise)
+
+    assert notebook._canvas_for_event(event) is None
 
 
 def test_apply_preset_updates_options(root, prompts):

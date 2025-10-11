@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, OptionMetadata
@@ -32,6 +32,8 @@ class CliParseResult:
     input_path: Path
     output_path: Path
     options: Dict[str, object]
+    flag_by_option: Dict[str, str]
+    unknown_flags: Tuple[str, ...] = ()
 
 
 def _normalise_boolean(value: Optional[str]) -> bool:
@@ -63,13 +65,6 @@ def _assign_option(result: Dict[str, object], option: OptionMetadata, value: obj
         result[key] = value
 
 
-def _resolve_option(flag: str, catalog: Catalog) -> OptionMetadata:
-    option = catalog.option_by_cli(flag)
-    if option is None:
-        raise CliParseError(f"Opción CLI desconocida: {flag}")
-    return option
-
-
 def parse_cli_parts(parts: Sequence[str], catalog: Catalog) -> CliParseResult:
     if len(parts) < 3:
         raise CliParseError("La línea CLI debe contener al menos comando, entrada y salida.")
@@ -85,10 +80,15 @@ def parse_cli_parts(parts: Sequence[str], catalog: Catalog) -> CliParseResult:
     output_path = Path(output_token)
 
     options: Dict[str, object] = {}
+    flag_by_option: Dict[str, str] = {}
+    unknown_flags: List[str] = []
     index = 0
 
     while index < len(rest):
         raw = rest[index]
+        if not raw or raw.strip() == "":
+            index += 1
+            continue
         if not raw.startswith("-"):
             raise CliParseError(f"Token inesperado sin prefijo '-': {raw}")
 
@@ -98,7 +98,13 @@ def parse_cli_parts(parts: Sequence[str], catalog: Catalog) -> CliParseResult:
         else:
             flag = raw
 
-        option = _resolve_option(flag, catalog)
+        option = catalog.option_by_cli(flag)
+        if option is None:
+            unknown_flags.append(flag)
+            index += 1
+            if inline_value is None and index < len(rest) and not rest[index].startswith("-"):
+                index += 1
+            continue
 
         if option.value_type == "boolean":
             value = _normalise_boolean(inline_value)
@@ -114,12 +120,15 @@ def parse_cli_parts(parts: Sequence[str], catalog: Catalog) -> CliParseResult:
                 index += 2
 
         _assign_option(options, option, value)
+        flag_by_option[option.id] = flag
 
     return CliParseResult(
         command=command,
         input_path=input_path,
         output_path=output_path,
         options=options,
+        flag_by_option=flag_by_option,
+        unknown_flags=tuple(unknown_flags),
     )
 
 
