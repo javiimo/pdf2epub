@@ -17,7 +17,7 @@ ebook-convert in.pdf out.epub \
   --minimum-line-height 1.25
 - [x] CUando selecciono muchas opciones del preset el recuadro se hace demasiado grande y se sale de la pantalla el botón de aceptar. Añadir un scroll a la descripción de los presets seleccionados.
 - [x] Limpiar opciones no soportadas o actualizar la versión de mi cli. Por qué tengo opciones no soportadas?
-- [ ] Añadir opción de borrar una configuración (eliminarla y si solo hay 1 abierta, que se quede como una nueva)
+- [x] Añadir opción de borrar una configuración (eliminarla y si solo hay 1 abierta, que se quede como una nueva)
 - [ ] Añadir una forma de actualizar calibre o instalarlo de nuevo.
 - [ ] Cuando miro las hints que se encuentran cerca del borde inferior de la app, se salen de la pantalla porque siempre renderizan hacia abajo, nunca hacia arriba o hacia al lado, aunque puedan no caber.
 - [ ] Mejorar la implementación de fórmulas matemáticas.

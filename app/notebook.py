@@ -560,6 +560,34 @@ class ConfigNotebook(ttk.Frame):
         )
         return self._add_tab(clone)
 
+    def delete_current_tab(self) -> Optional[str]:
+        tab_id = self._current_tab_id()
+        if tab_id is None:
+            self._error_handler("No hay pestaña seleccionada para eliminar.")
+            return None
+
+        if self.has_running_job(tab_id):
+            self._error_handler("No se puede eliminar una configuración con una tarea en ejecución.")
+            return None
+
+        tabs = list(self.notebook.tabs())
+        if len(tabs) <= 1:
+            self._remove_tab(tab_id)
+            new_id = self.new_tab()
+            self._update_cancel_button_state()
+            return new_id
+
+        index = tabs.index(tab_id)
+        self._remove_tab(tab_id)
+
+        remaining = list(self.notebook.tabs())
+        if remaining:
+            next_index = min(index, len(remaining) - 1)
+            self.notebook.select(remaining[next_index])
+
+        self._update_cancel_button_state()
+        return self._current_tab_id()
+
     def import_cli_line(self) -> Optional[str]:
         tab_id = self._current_tab_id()
         if tab_id is None:
@@ -756,6 +784,7 @@ class ConfigNotebook(ttk.Frame):
         buttons = [
             ("Nueva", self.new_tab),
             ("Clonar", self.clone_current_tab),
+            ("Eliminar", self.delete_current_tab),
             ("Presets", self.apply_preset),
             ("Guardar preset", self.save_preset),
             ("Importar línea CLI", self.import_cli_line),
@@ -1107,6 +1136,37 @@ class ConfigNotebook(ttk.Frame):
             controls["prev"].configure(state=tk.DISABLED)
             controls["next"].configure(state=tk.DISABLED)
             controls["current"] = None
+
+    def _remove_tab(self, tab_id: str) -> None:
+        self._cleanup_preview_state(tab_id)
+        self._running_jobs.pop(tab_id, None)
+
+        try:
+            self.notebook.forget(tab_id)
+        except tk.TclError:
+            pass
+
+        for registry in (
+            self._config_by_tab,
+            self._summary_labels,
+            self._forms,
+            self._status_labels,
+            self._viewer_widgets,
+            self._console_widgets,
+            self._spine_controls,
+            self._input_controls,
+        ):
+            registry.pop(tab_id, None)
+
+        try:
+            widget = self.nametowidget(tab_id)
+        except (tk.TclError, KeyError):
+            widget = None
+        if widget is not None:
+            try:
+                widget.destroy()
+            except tk.TclError:
+                pass
 
     def _set_spine_selection(self, tab_widget_id: str, index: int, *, load_viewer: bool) -> None:
         controls = self._spine_controls.get(tab_widget_id)

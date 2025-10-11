@@ -108,6 +108,48 @@ def test_clone_current_tab_creates_independent_copy(root, prompts):
     assert cloned.title != current.title
 
 
+def test_delete_current_tab_removes_selected_when_multiple(root, prompts):
+    notebook = build_notebook(root, prompts)
+    original_widget = notebook.notebook.select()
+    notebook.new_tab()
+    root.update_idletasks()
+
+    tabs = list(notebook.notebook.tabs())
+    assert len(tabs) == 2
+
+    notebook.notebook.select(original_widget)
+    notebook.delete_current_tab()
+    root.update_idletasks()
+
+    remaining_tabs = notebook.notebook.tabs()
+    assert len(remaining_tabs) == 1
+    assert original_widget not in remaining_tabs
+    configs = list(notebook.configurations())
+    assert len(configs) == 1
+
+
+def test_delete_current_tab_resets_when_single(root, prompts):
+    notebook = build_notebook(root, prompts)
+    widget_before = notebook.notebook.select()
+    config_before = notebook.current_configuration()
+    assert config_before is not None
+    config_before.options["marker"] = "value"
+    tab_id_before = config_before.tab_id
+
+    notebook.delete_current_tab()
+    root.update_idletasks()
+
+    tabs_after = notebook.notebook.tabs()
+    assert len(tabs_after) == 1
+    widget_after = tabs_after[0]
+    assert widget_after != widget_before
+
+    config_after = notebook.current_configuration()
+    assert config_after is not None
+    assert config_after.tab_id != tab_id_before
+    assert config_after.options == {}
+
+
 def test_import_cli_line_updates_current_tab(root, prompts, monkeypatch):
     prompts.cli_values.append(
         "ebook-convert input.pdf output.epub --base-font-size 12 --verbose"
