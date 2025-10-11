@@ -150,6 +150,23 @@ def test_delete_current_tab_resets_when_single(root, prompts):
     assert config_after.options == {}
 
 
+def test_show_calibre_update_dialog_creates_toplevel(root, prompts, monkeypatch):
+    monkeypatch.setattr("app.calibre_update._detect_installed_version", lambda: "7.5.0")
+    monkeypatch.setattr("app.calibre_update._fetch_latest_version", lambda timeout=5.0: "7.6.0")
+    notebook = build_notebook(root, prompts)
+    before = set(root.winfo_children())
+    notebook.show_calibre_update()
+    root.update_idletasks()
+
+    after = set(root.winfo_children())
+    dialogs = [widget for widget in after - before if isinstance(widget, tk.Toplevel)]
+    assert dialogs
+
+    for dialog in dialogs:
+        dialog.destroy()
+    root.update_idletasks()
+
+
 def test_import_cli_line_updates_current_tab(root, prompts, monkeypatch):
     prompts.cli_values.append(
         "ebook-convert input.pdf output.epub --base-font-size 12 --verbose"

@@ -16,6 +16,29 @@ Permite mantener varias configuraciones, combinarlas con presets por capas, impo
 - `qpdf` instalado para generar subconjuntos del PDF original.
 - Librerías del sistema necesarias para Tk y fuentes básicas (ya incluidas en la mayoría de distribuciones).
 
+## Actualizar Calibre en LMDE
+Calibre distribuye un instalador oficial que funciona en Debian y derivados (incluida Linux Mint Debian Edition). Pasos sugeridos:
+
+> Desde la barra de herramientas de la aplicación puedes pulsar **Actualizar Calibre** para ver la versión instalada y la última detectada. Si es necesario, se abrirá tu terminal por defecto con los comandos indicados, aunque siempre podrás copiarlos manualmente.
+
+1. **Quita la versión de los repositorios si la tienes instalada**  
+   ```bash
+   sudo apt purge calibre
+   ```
+2. **Instala o actualiza a la última versión estable**  
+   ```bash
+   sudo -v && wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sudo sh /dev/stdin
+   ```
+   El mismo comando sirve para reinstalar cuando haya una versión nueva.
+3. **Desinstalar la versión del instalador oficial**  
+   ```bash
+   sudo calibre-uninstall
+   ```
+
+Tras ejecutar cualquiera de los comandos anteriores, cierra y vuelve a abrir pdf2epub para que la aplicación detecte la nueva versión de `ebook-convert`.
+
+Referencias: [documentación oficial de Calibre](https://calibre-ebook.com/download_linux).
+
 ## Instalación
 Se recomienda trabajar dentro de un entorno virtual dedicado:
 

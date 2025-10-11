@@ -21,6 +21,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter import font as tkfont
 
+from app.calibre_update import show_calibre_update_dialog
 from app.forms import ConfigForm
 from app.html_viewer import HtmlViewer
 from app.preset_dialog import choose_presets
@@ -588,6 +589,9 @@ class ConfigNotebook(ttk.Frame):
         self._update_cancel_button_state()
         return self._current_tab_id()
 
+    def show_calibre_update(self) -> None:
+        show_calibre_update_dialog(self.winfo_toplevel())
+
     def import_cli_line(self) -> Optional[str]:
         tab_id = self._current_tab_id()
         if tab_id is None:
@@ -795,6 +799,7 @@ class ConfigNotebook(ttk.Frame):
             ("Exportar OEB", self.export_oeb),
             ("Tamaño letra", self.change_font_size),
             ("Fuente base", self.change_font_family),
+            ("Actualizar Calibre", self.show_calibre_update),
         ]
 
         for idx, (label, command) in enumerate(buttons):
