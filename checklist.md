@@ -16,5 +16,5 @@ Checklist de implementación.
 - [x] Convertir texto con `ebook-convert in.pdf out_oeb` usando el preset Kobo sin crear EPUB.
 - [x] Ensamblar OEB abriendo `content.opf`, iterando el HTML del spine e insertando `<figure><img class="mathblock"...></figure>` o `<figure class="table">…` en la posición correcta. Si el HTML no preserva página, hacer fuzzy match (p. ej., RapidFuzz) de la línea contenedora y sustituir el `<p>` completo por la `<figure>`.
 - [x] Añadir CSS al OEB con `.mathblock,.table{max-width:100%;height:auto;display:block;margin:0.6em auto;page-break-inside:avoid}.`
-- [ ] Validar dibujando overlays para QA rápida y guardando métricas básicas (cobertura, número de cajas, tiempo).
-- [ ] Empaquetar opcionalmente ejecutando `ebook-convert out_oeb out.epub` al pulsar “Guardar EPUB”.
+- [x] Validar dibujando overlays para QA rápida y guardando métricas básicas (cobertura, número de cajas, tiempo).
+- [x] Empaquetar opcionalmente ejecutando `ebook-convert out_oeb out.epub` al pulsar “Guardar EPUB”.

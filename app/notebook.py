@@ -35,7 +35,12 @@ from core.runner.cli_parser import (
     parse_cli_commands,
 )
 from core.runner import cli_support
-from core.runner.epub import ConversionError, ConversionResult, run_epub
+from core.runner.epub import (
+    ConversionError,
+    ConversionResult,
+    run_epub,
+    package_epub_from_oeb,
+)
 from core.runner.preview import PreviewError, PreviewResult, run_preview
 
 CliPrompt = Callable[[], Optional[str]]
@@ -1515,6 +1520,18 @@ class ConfigNotebook(ttk.Frame):
 
         def runner(send: Callable[[str, Any], None], cancel_event: threading.Event) -> ConversionResult:
             if self._conversion_runner is None:
+                # Prefer packaging from an existing preview OEB if available.
+                preview = self._preview_state.get(tab_id)
+                if preview is not None and preview.oeb_output.exists():
+                    # Make it explicit in the console so users know fast-path is used.
+                    self._append_console(tab_id, "Se detectó OEB de previsualización; empaquetando EPUB…")
+                    return package_epub_from_oeb(
+                        config,
+                        preview.oeb_output,
+                        target_path,
+                        catalog=self.catalog,
+                        run=self._make_streaming_run(tab_id, send, cancel_event),
+                    )
                 return run_epub(
                     config,
                     target_path,
