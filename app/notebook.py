@@ -42,6 +42,7 @@ from core.runner.epub import (
     package_epub_from_oeb,
 )
 from core.runner.preview import PreviewError, PreviewResult, run_preview
+from core.runner.enrich import enrich_oeb_with_ml, EnrichOptions
 
 CliPrompt = Callable[[], Optional[str]]
 ExportPrompt = Callable[[TabConfiguration], Optional[str]]
@@ -1437,11 +1438,30 @@ class ConfigNotebook(ttk.Frame):
 
         def runner(send: Callable[[str, Any], None], cancel_event: threading.Event) -> PreviewResult:
             if self._preview_runner is None:
-                return run_preview(
+                result = run_preview(
                     config,
                     catalog=self.catalog,
                     run=self._make_streaming_run(tab_id, send, cancel_event),
                 )
+                # Enrich OEB with ML detections (best effort)
+                try:
+                    send("message", "Aplicando detección de fórmulas/tabla y añadiendo imágenes…")
+                    enrich_oeb_with_ml(
+                        result,
+                        options=EnrichOptions(
+                            dpi=360,
+                            device="cpu",
+                            paddleocr_path=None,
+                            suppress_math_inside_tables=bool(config.extras.get("suppress_math_inside_tables", True)),
+                            table_cover_threshold=float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
+                        ),
+                        send=send,
+                        run=self._make_streaming_run(tab_id, send, cancel_event),
+                    )
+                except Exception as exc:
+                    # Do not fail preview on enrichment issues
+                    send("message", f"[WARN] Enriquecimiento ML omitido: {exc}")
+                return result
             return self._preview_runner(config, cancel_event)
 
         def on_success(result: PreviewResult) -> None:
@@ -1523,7 +1543,6 @@ class ConfigNotebook(ttk.Frame):
                 # Prefer packaging from an existing preview OEB if available.
                 preview = self._preview_state.get(tab_id)
                 if preview is not None and preview.oeb_output.exists():
-                    # Make it explicit in the console so users know fast-path is used.
                     self._append_console(tab_id, "Se detectó OEB de previsualización; empaquetando EPUB…")
                     return package_epub_from_oeb(
                         config,
@@ -1532,8 +1551,32 @@ class ConfigNotebook(ttk.Frame):
                         catalog=self.catalog,
                         run=self._make_streaming_run(tab_id, send, cancel_event),
                     )
-                return run_epub(
+                # No preview available: run a preview + enrichment, then package
+                send("message", "Generando OEB previo para aplicar detección ML…")
+                prev = run_preview(
                     config,
+                    catalog=self.catalog,
+                    run=self._make_streaming_run(tab_id, send, cancel_event),
+                )
+                try:
+                    send("message", "Aplicando detección de fórmulas/tabla y añadiendo imágenes…")
+                    enrich_oeb_with_ml(
+                        prev,
+                        options=EnrichOptions(
+                            dpi=360,
+                            device="cpu",
+                            paddleocr_path=None,
+                            suppress_math_inside_tables=bool(config.extras.get("suppress_math_inside_tables", True)),
+                            table_cover_threshold=float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
+                        ),
+                        send=send,
+                        run=self._make_streaming_run(tab_id, send, cancel_event),
+                    )
+                except Exception as exc:
+                    send("message", f"[WARN] Enriquecimiento ML omitido: {exc}")
+                return package_epub_from_oeb(
+                    config,
+                    prev.oeb_output,
                     target_path,
                     catalog=self.catalog,
                     run=self._make_streaming_run(tab_id, send, cancel_event),
