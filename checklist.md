@@ -1,8 +1,15 @@
+Contexto
+
+Buscamos usar un modelo de ML de layout para detectar ecuaciones (tanto inline como en bloque) y tablas sobre las páginas renderizadas del PDF. Con los bounding boxes de cada elemento:
+- Rasterizamos solo esas regiones a 360–420 dpi.
+- Insertamos las imágenes en el HTML del OEB/EPUB en la misma posición del texto original.
+- Eliminamos el texto correspondiente (ecuaciones y tablas) para evitar deformaciones de la conversión PDF→EPUB.
+
 Checklist de implementación.
 
-- [ ] Render páginas a imagen con `pdftocairo -png -r 360 in.pdf out-%04d.png` (usa 420 dpi si hace falta; soporta recorte `-x -y -W -H`). Referencia: Debian Manpages.
-- [ ] Inferir layout cargando el detector DocLayNet elegido y generando bboxes por clase, normalizados a píxeles de la imagen. Referencia: Hugging Face (+1).
-- [ ] Detectar tablas corriendo TATR para table y opcionalmente TSR; convertir a bboxes finales y unir con layout si el IoU > 0.3. Referencia: Hugging Face (+1).
+- [x] Render páginas a imagen con `pdftocairo -png -r 360 in.pdf out-%04d.png` (usa 420 dpi si hace falta; soporta recorte `-x -y -W -H`). 
+- [x] Inferir layout cargando el detector DocLayNet elegido y generando bboxes por clase, normalizados a píxeles de la imagen.
+- [ ] Detectar tablas corriendo TATR para table y opcionalmente TSR; convertir a bboxes finales y unir con layout si el IoU > 0.3.
 - [ ] Postprocesar cajas filtrando por área mínima, fusionando solapes, expandiendo el margen 4–6 pt y etiquetando mathblock/tableblock.
 - [ ] Aplicar fallback por página marcándola como “rasterizar completa” si la cobertura de cajas ≥40% o el número de cajas ≥N.
 - [ ] Rasterizar selectivamente cada bbox con `pdftocairo -png -r 360 -x X -y Y -W W -H H in.pdf part-p%04d-b%02d.png`. Referencia: Debian Manpages.
