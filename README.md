@@ -57,6 +57,28 @@ pip install -r requirements.txt
 
 > Tip: si prefieres no activar el entorno, ejecuta con ruta absoluta (`./.venv/bin/python run.py`, `./.venv/bin/python -m pytest`, etc.).
 
+### Perfiles CPU/GPU (Paddle)
+Para probar OCR con Paddle tanto en CPU como en GPU, dispones de dos ficheros de requisitos separados:
+
+- `requirements-cpu.txt` (usa `paddlepaddle==3.0.0`)
+- `requirements-gpu.txt` (usa `paddlepaddle-gpu==3.0.0` y añade el índice CU118)
+
+Comandos sugeridos:
+
+```bash
+# CPU
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-cpu.txt
+
+# GPU (CUDA 11.8)
+python3 -m venv .venv-gpu
+source .venv-gpu/bin/activate
+pip install -r requirements-gpu.txt
+```
+
+Nota: no mezcles `paddlepaddle` (CPU) y `paddlepaddle-gpu` en un mismo entorno; usa venvs distintos.
+
 ## Puesta en marcha
 ```bash
 python run.py               # o ./venv/bin/python run.py

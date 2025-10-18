@@ -1,0 +1,15 @@
+# Keep PyPI as default and add Paddle CU118 index
+--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu118/
+-r requirements.txt
+
+# Paddle GPU build (CUDA 11.8)
+paddlepaddle-gpu==3.0.0
+
+# OCR + doc parsing and imaging
+paddleocr[doc-parser]
+pymupdf
+pillow
+opencv-python-headless
+
+# Dev/test utilities used in this repo
+pytest
