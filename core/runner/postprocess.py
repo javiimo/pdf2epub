@@ -36,6 +36,8 @@ class PostprocessOptions:
     dpi: int = 360
     merge_overlaps: bool = True
     label_map: Mapping[str, str] = None  # type: ignore[assignment]
+    suppress_math_inside_tables: bool = True
+    table_cover_threshold: float = 0.9
 
     def __post_init__(self) -> None:  # type: ignore[override]
         if self.label_map is None:
@@ -106,6 +108,19 @@ def _merge_overlapping(rects: List[Tuple[int, int, int, int]]) -> List[Tuple[int
     return current
 
 
+def _intersection_area(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> int:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    if aw <= 0 or ah <= 0 or bw <= 0 or bh <= 0:
+        return 0
+    ax2, ay2 = ax + aw, ay + ah
+    bx2, by2 = bx + bw, by + bh
+    ix1, iy1 = max(ax, bx), max(ay, by)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    return iw * ih
+
+
 def postprocess_math_and_tables(
     layout: LayoutResult,
     *,
@@ -131,16 +146,39 @@ def postprocess_math_and_tables(
         groups.setdefault(target, []).append((b.x, b.y, b.width, b.height))
         scores.setdefault(target, []).append(b.score)
 
-    processed_boxes: List[LayoutBox] = []
+    per_label_boxes: Dict[str, List[LayoutBox]] = {}
     for target_label, rects in groups.items():
         merged_rects = _merge_overlapping(rects) if opts.merge_overlaps else rects
-        for idx, r in enumerate(merged_rects):
+        out: List[LayoutBox] = []
+        for r in merged_rects:
             ex, ey, ew, eh = _expand_rect(r, margin_px)
-            # Pick a representative score: max of contributing class
             score = max(scores.get(target_label, [0.0]) or [0.0])
-            processed_boxes.append(
-                LayoutBox(label=target_label, score=score, x=ex, y=ey, width=ew, height=eh)
-            )
+            out.append(LayoutBox(label=target_label, score=score, x=ex, y=ey, width=ew, height=eh))
+        per_label_boxes[target_label] = out
 
-    return LayoutResult(image_path=layout.image_path, page_index=layout.page_index, boxes=tuple(processed_boxes))
+    # Optionally suppress math blocks that are almost fully covered by a table
+    if opts.suppress_math_inside_tables:
+        math_list = per_label_boxes.get("mathblock", [])
+        tables = per_label_boxes.get("tableblock", [])
+        kept: List[LayoutBox] = []
+        for m in math_list:
+            m_area = m.width * m.height
+            if m_area <= 0:
+                continue
+            covered = False
+            m_rect = (m.x, m.y, m.width, m.height)
+            for t in tables:
+                inter = _intersection_area(m_rect, (t.x, t.y, t.width, t.height))
+                if inter > 0 and (inter / float(m_area)) >= opts.table_cover_threshold:
+                    covered = True
+                    break
+            if not covered:
+                kept.append(m)
+        per_label_boxes["mathblock"] = kept
 
+    # Flatten back preserving a stable order: math then tables for readability
+    final_list: List[LayoutBox] = []
+    for label in ("mathblock", "tableblock"):
+        final_list.extend(per_label_boxes.get(label, []))
+
+    return LayoutResult(image_path=layout.image_path, page_index=layout.page_index, boxes=tuple(final_list))

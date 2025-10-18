@@ -24,6 +24,10 @@ __all__ = [
     "copy_images_into_oeb",
     "add_images_to_manifest",
     "insert_figures_into_html",
+    "write_css_into_oeb",
+    "add_css_to_manifest",
+    "link_stylesheet_in_html",
+    "install_default_css",
 ]
 
 
@@ -130,6 +134,158 @@ def add_images_to_manifest(opf_path: Path, image_paths: Sequence[Path]) -> None:
     tree.write(opf_path, encoding="utf-8", xml_declaration=True)
 
 
+def write_css_into_oeb(
+    oeb_root: Path,
+    css_text: str,
+    *,
+    relative_path: str = "Styles/pdf2epub.css",
+) -> Path:
+    """Write a CSS file under the OEB tree and return its absolute path.
+
+    The CSS file is created (or overwritten) at ``oeb_root/relative_path``.
+    Parent directories are created as needed.
+    """
+    oeb_root = Path(oeb_root)
+    css_path = oeb_root / relative_path
+    _ensure_dir(css_path.parent)
+    css_path.write_text(css_text, encoding="utf-8")
+    return css_path
+
+
+def add_css_to_manifest(opf_path: Path, css_path: Path) -> None:
+    """Ensure a CSS <item> exists in the OPF manifest for the given file.
+
+    - Uses id="css-<stem>" (deduplicated with numeric suffix if needed).
+    - href is written relative to the OPF directory with forward slashes.
+    - media-type is "text/css".
+    """
+    opf_path = Path(opf_path)
+    if not opf_path.exists():
+        raise AssemblyError(f"No se encontró OPF: {opf_path}")
+
+    try:
+        tree = ET.parse(opf_path)
+    except (ET.ParseError, OSError) as exc:  # pragma: no cover - delegated
+        raise AssemblyError(f"No se pudo leer '{opf_path.name}': {exc}") from exc
+
+    root = tree.getroot()
+    ns = _detect_namespace(root.tag)
+    manifest = root.find(_qualified("manifest", ns))
+    if manifest is None:
+        raise AssemblyError("El archivo OPF no contiene <manifest>.")
+
+    existing_ids = {item.get("id") for item in manifest.findall(_qualified("item", ns))}
+    existing_hrefs = {item.get("href") for item in manifest.findall(_qualified("item", ns))}
+
+    css_path = Path(css_path)
+    rel = os.path.relpath(css_path, opf_path.parent).replace("\\", "/")
+    if rel in existing_hrefs:
+        # Already present; nothing to do
+        return
+
+    base_id = f"css-{css_path.stem}"
+    new_id = base_id
+    suffix = 1
+    while new_id in existing_ids:
+        suffix += 1
+        new_id = f"{base_id}-{suffix}"
+
+    item = ET.Element(_qualified("item", ns))
+    item.set("id", new_id)
+    item.set("href", rel)
+    item.set("media-type", "text/css")
+    manifest.append(item)
+
+    tree.write(opf_path, encoding="utf-8", xml_declaration=True)
+
+
+def link_stylesheet_in_html(html_path: Path, css_path: Path) -> None:
+    """Insert a <link rel="stylesheet"> pointing to css_path into the HTML.
+
+    Prefer inserting before </head>. If <head> is missing, inject a <head> block
+    right after <html ...> opening tag. As a last resort, prepend a <head>.
+    The link is skipped if the file already references the css_path.
+    """
+    html_path = Path(html_path)
+    if not html_path.exists():
+        raise AssemblyError(f"HTML no encontrado: {html_path}")
+
+    try:
+        text = html_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError as exc:  # pragma: no cover - delegated
+        raise AssemblyError(f"No se pudo leer HTML: {html_path}: {exc}") from exc
+
+    rel_href = os.path.relpath(Path(css_path), html_path.parent).replace("\\", "/")
+    link_tag = f'<link rel="stylesheet" type="text/css" href="{rel_href}" />'
+
+    # Skip if already linked (rough check by href substring)
+    lower = text.lower()
+    if rel_href.lower() in lower:
+        return
+
+    # Insert before </head> if present
+    end_head_idx = lower.find("</head>")
+    if end_head_idx != -1:
+        new_text = text[:end_head_idx] + link_tag + "\n" + text[end_head_idx:]
+        html_path.write_text(new_text, encoding="utf-8")
+        return
+
+    # Otherwise, try to inject a <head> after <html ...>
+    html_open_idx = lower.find("<html")
+    if html_open_idx != -1:
+        # Find the closing '>' of the <html ...> tag
+        gt_idx = lower.find(">", html_open_idx)
+        if gt_idx != -1:
+            head_block = f"\n<head>\n{link_tag}\n</head>\n"
+            new_text = text[: gt_idx + 1] + head_block + text[gt_idx + 1 :]
+            html_path.write_text(new_text, encoding="utf-8")
+            return
+
+    # Fallback: prepend a head block
+    new_text = f"<head>\n{link_tag}\n</head>\n" + text
+    html_path.write_text(new_text, encoding="utf-8")
+
+
+def install_default_css(
+    oeb_root: Path,
+    *,
+    css_text: Optional[str] = None,
+    opf_path: Optional[Path] = None,
+    link_spine_html: bool = True,
+) -> Path:
+    """Install and link the default CSS rules into an OEB directory.
+
+    - Writes CSS to ``Styles/pdf2epub.css`` under the OEB root.
+    - Ensures an OPF manifest entry exists.
+    - Optionally links the stylesheet in all linear spine HTML files.
+
+    Returns the absolute path to the written CSS file.
+    """
+    rules = (
+        css_text
+        if css_text is not None
+        else ".mathblock,.table{max-width:100%;height:auto;display:block;margin:0.6em auto;page-break-inside:avoid}."
+    )
+    css_abs = write_css_into_oeb(oeb_root, rules, relative_path="Styles/pdf2epub.css")
+
+    opf = opf_path if opf_path is not None else Path(oeb_root) / "content.opf"
+    add_css_to_manifest(opf, css_abs)
+
+    if link_spine_html:
+        try:
+            # Import lazily to avoid an unconditional dependency
+            from core.parser import parse_spine
+
+            for entry in parse_spine(oeb_root):
+                if entry.linear and "html" in entry.media_type.lower():
+                    link_stylesheet_in_html(entry.href, css_abs)
+        except Exception:
+            # Linking is a best-effort enhancement; do not fail hard here.
+            pass
+
+    return css_abs
+
+
 @dataclass(frozen=True)
 class FigureSpec:
     """Descriptor for an image insertion into HTML."""
@@ -180,4 +336,3 @@ def insert_figures_into_html(
             new_text = text + snippet
 
     html_path.write_text(new_text, encoding="utf-8")
-

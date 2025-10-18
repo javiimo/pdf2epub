@@ -92,6 +92,7 @@ class ConfigNotebook(ttk.Frame):
         self._console_widgets: Dict[str, tk.Text] = {}
         self._status_labels: Dict[str, ttk.Label] = {}
         self._spine_controls: Dict[str, Dict[str, Any]] = {}
+        self._postprocess_controls: Dict[str, Dict[str, Any]] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
         self._running_jobs: Dict[str, dict] = {}
         self._preview_runner = self._wrap_preview_runner(preview_runner)
@@ -847,7 +848,7 @@ class ConfigNotebook(ttk.Frame):
         )
 
         self._create_input_controls(left, config, tab_widget_id)
-        self._create_side_panel(right, tab_widget_id)
+        self._create_side_panel(right, tab_widget_id, config)
 
         form_container = ttk.Frame(left)
         form_container.grid(row=2, column=0, sticky="nsew")
@@ -982,9 +983,10 @@ class ConfigNotebook(ttk.Frame):
         finally:
             controls["suspend"] = False
 
-    def _create_side_panel(self, parent: ttk.Frame, tab_widget_id: str) -> None:
+    def _create_side_panel(self, parent: ttk.Frame, tab_widget_id: str, config: TabConfiguration) -> None:
         parent.rowconfigure(0, weight=3)
         parent.rowconfigure(1, weight=1)
+        parent.rowconfigure(2, weight=0)
         parent.columnconfigure(0, weight=1)
 
         viewer_frame = ttk.LabelFrame(parent, text="Visor HTML")
@@ -1053,6 +1055,63 @@ class ConfigNotebook(ttk.Frame):
             "prev": prev_button,
             "next": next_button,
             "suspend": False,
+        }
+
+        # Post-process controls (extras)
+        pp_frame = ttk.LabelFrame(parent, text="Post-procesado")
+        pp_frame.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        pp_frame.columnconfigure(1, weight=1)
+
+        # Defaults
+        default_suppress = bool(config.extras.get("suppress_math_inside_tables", True))
+        default_threshold = config.extras.get("table_cover_threshold", 0.9)
+        try:
+            default_threshold = float(default_threshold)
+        except Exception:
+            default_threshold = 0.9
+        default_threshold = max(0.0, min(1.0, default_threshold))
+
+        suppress_var = tk.BooleanVar(value=default_suppress)
+        threshold_var = tk.DoubleVar(value=default_threshold)
+
+        def on_suppress_toggle() -> None:
+            cfg = self._config_by_tab.get(tab_widget_id)
+            if cfg is None:
+                return
+            value = bool(suppress_var.get())
+            cfg.extras["suppress_math_inside_tables"] = value
+
+        def on_threshold_change(*_args: object) -> None:
+            cfg = self._config_by_tab.get(tab_widget_id)
+            if cfg is None:
+                return
+            try:
+                raw = float(threshold_var.get())
+            except Exception:
+                return
+            value = max(0.0, min(1.0, raw))
+            # Clamp UI back
+            if value != raw:
+                try:
+                    threshold_var.set(value)
+                except Exception:
+                    pass
+            cfg.extras["table_cover_threshold"] = value
+
+        cb = ttk.Checkbutton(pp_frame, text="Suprimir ecuaciones dentro de tablas", variable=suppress_var, command=on_suppress_toggle)
+        cb.grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 2))
+
+        ttk.Label(pp_frame, text="Umbral cobertura (0–1)").grid(row=1, column=0, sticky="w", padx=(8, 6), pady=(2, 8))
+        spin = tk.Spinbox(pp_frame, from_=0.0, to=1.0, increment=0.05, textvariable=threshold_var, width=6, command=on_threshold_change)
+        spin.grid(row=1, column=1, sticky="w", padx=(0, 6), pady=(2, 8))
+        ttk.Label(pp_frame, text="≥ proporción del área de math cubierto por tabla").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=(2, 8))
+
+        threshold_var.trace_add("write", on_threshold_change)
+
+        self._postprocess_controls[tab_widget_id] = {
+            "frame": pp_frame,
+            "suppress_var": suppress_var,
+            "threshold_var": threshold_var,
         }
 
     def _append_console(self, tab_widget_id: str, message: str, *, clear: bool = False) -> None:
