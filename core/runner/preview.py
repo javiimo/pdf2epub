@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
@@ -14,6 +14,7 @@ from core.runner.cli_support import get_supported_flags
 from core.runner.options_cli import build_convert_command
 from core.runner.pdf_subset import PdfSubsetError, prepare_pdf_subset
 from core.runner.temp_manager import TemporaryWorkspace
+from core.presets import apply_preset, get_presets
 
 __all__ = ["PreviewError", "PreviewResult", "run_preview"]
 
@@ -74,6 +75,16 @@ def run_preview(
         )
 
     active_catalog = _ensure_catalog(catalog)
+    # Ensure a sensible default device profile for OEB preview.
+    # Apply Kobo base preset when no explicit output-profile is set.
+    if "output-profile" not in (config.options or {}):
+        presets = get_presets()
+        kobo = next((p for p in presets if p.id == "base-kobo"), None)
+        if kobo is not None:
+            # Work on a shallow copy of the config so we don't mutate caller state
+            cfg_options = dict(config.options)
+            apply_preset(cfg_options, kobo)
+            config = replace(config, options=cfg_options)
     workspace = workspace_factory()
     try:
         def subset_run(command: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess:
