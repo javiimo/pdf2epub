@@ -23,6 +23,18 @@ def _ensure_catalog(catalog: Optional[Catalog]) -> Catalog:
     return catalog if catalog is not None else get_catalog()
 
 
+def _is_header_footer_detection_bug(stderr: str) -> bool:
+    """Heuristic to detect the calibre PDF reflow header/footer bug.
+
+    We look for the signature of an IndexError happening inside
+    ``find_header_footer`` from ``calibre/ebooks/pdf/reflow.py``.
+    """
+    if not stderr:
+        return False
+    s = stderr.lower()
+    return ("find_header_footer" in s) and ("indexerror" in s)
+
+
 @dataclass
 class PreviewResult:
     """Outcome of a preview execution."""
@@ -144,6 +156,146 @@ def run_preview(
 
     stdout = completed.stdout or ""
     stderr = completed.stderr or ""
+
+    # Fallback: calibre PDF reflow header/footer autodetection can crash with
+    # IndexError on some PDFs/ranges. Retry disabling the auto-skip by forcing
+    # header/footer skip to 0 when we detect that signature.
+    if completed.returncode != 0 and _is_header_footer_detection_bug(stderr):
+        # Prepare a modified config overriding only the two relevant options.
+        fallback_options = dict(config.options)
+        fallback_options["pdf-header-skip"] = "0"
+        fallback_options["pdf-footer-skip"] = "0"
+        fallback_config = replace(config, options=fallback_options)
+
+        fb_skipped: List[str] = []
+        fallback_command = build_convert_command(
+            ebook_convert_path,
+            subset_pdf,
+            oeb_output,
+            fallback_config,
+            active_catalog,
+            supported_flags=supported_flags,
+            skipped=fb_skipped,
+        )
+
+        try:
+            fb_completed = run(
+                fallback_command,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            # If the second attempt cannot even be executed, keep the original error.
+            workspace.cleanup()
+            raise PreviewError(
+                f"ebook-convert falló y el reintento con fallback también falló.",
+                command=fallback_command,
+                stdout=stdout,
+                stderr=stderr,
+                returncode=completed.returncode,
+            )
+
+        if fb_completed.returncode == 0:
+            # Use fallback run results from here on.
+            command = fallback_command
+            stdout = fb_completed.stdout or ""
+            stderr = fb_completed.stderr or ""
+            # Merge skipped lists, keeping order.
+            skipped.extend(x for x in fb_skipped if x not in skipped)
+        else:
+            # Try a second-level fallback: force regexes that never match to
+            # avoid any header/footer stripping code paths in older calibre.
+            if _is_header_footer_detection_bug(fb_completed.stderr or ""):
+                regex_options = dict(fallback_config.options)
+                regex_options.setdefault("pdf-header-skip", "0")
+                regex_options.setdefault("pdf-footer-skip", "0")
+                regex_options["pdf-header-regex"] = "(?!)"
+                regex_options["pdf-footer-regex"] = "(?!)"
+                regex_config = replace(fallback_config, options=regex_options)
+
+                rx_skipped: List[str] = []
+                regex_command = build_convert_command(
+                    ebook_convert_path,
+                    subset_pdf,
+                    oeb_output,
+                    regex_config,
+                    active_catalog,
+                    supported_flags=supported_flags,
+                    skipped=rx_skipped,
+                )
+
+                try:
+                    rx_completed = run(
+                        regex_command,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                except OSError:
+                    workspace.cleanup()
+                    raise PreviewError(
+                        "ebook-convert falló y los reintentos con fallback también fallaron.",
+                        command=regex_command,
+                        stdout=stdout,
+                        stderr=stderr,
+                        returncode=completed.returncode,
+                    )
+
+                if rx_completed.returncode == 0:
+                    command = regex_command
+                    stdout = rx_completed.stdout or ""
+                    stderr = rx_completed.stderr or ""
+                    for x in fb_skipped:
+                        if x not in skipped:
+                            skipped.append(x)
+                    for x in rx_skipped:
+                        if x not in skipped:
+                            skipped.append(x)
+                else:
+                    # Include all runs' info in the error to aid debugging.
+                    workspace.cleanup()
+                    combined_stderr = (
+                        (stderr or "").rstrip()
+                        + "\n\n[Fallback intentado: pdf-header-skip=0, pdf-footer-skip=0]\n"
+                        + (fb_completed.stderr or "")
+                        + "\n\n[Fallback 2 intentado: regex de cabecera/pie vacíos]\n"
+                        + (rx_completed.stderr or "")
+                    )
+                    combined_stdout = (
+                        (stdout or "").rstrip()
+                        + "\n\n[Fallback intentado]\n"
+                        + (fb_completed.stdout or "")
+                        + "\n\n[Fallback 2 intentado]\n"
+                        + (rx_completed.stdout or "")
+                    )
+                    raise PreviewError(
+                        f"ebook-convert falló (y los fallbacks también) con código {rx_completed.returncode}.",
+                        command=regex_command,
+                        stdout=combined_stdout,
+                        stderr=combined_stderr,
+                        returncode=rx_completed.returncode,
+                    )
+            else:
+                # Include both runs' info in the error to aid debugging.
+                workspace.cleanup()
+                combined_stderr = (
+                    (stderr or "").rstrip()
+                    + "\n\n[Fallback intentado: pdf-header-skip=0, pdf-footer-skip=0]\n"
+                    + (fb_completed.stderr or "")
+                )
+                combined_stdout = (
+                    (stdout or "").rstrip()
+                    + "\n\n[Fallback intentado]\n"
+                    + (fb_completed.stdout or "")
+                )
+                raise PreviewError(
+                    f"ebook-convert falló (y el fallback también) con código {fb_completed.returncode}.",
+                    command=fallback_command,
+                    stdout=combined_stdout,
+                    stderr=combined_stderr,
+                    returncode=fb_completed.returncode,
+                )
 
     if completed.returncode != 0:
         workspace.cleanup()
