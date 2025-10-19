@@ -24,6 +24,7 @@ __all__ = [
     "copy_images_into_oeb",
     "add_images_to_manifest",
     "insert_figures_into_html",
+    "insert_figures_inline",
     "write_css_into_oeb",
     "add_css_to_manifest",
     "link_stylesheet_in_html",
@@ -288,10 +289,20 @@ def install_default_css(
 
 @dataclass(frozen=True)
 class FigureSpec:
-    """Descriptor for an image insertion into HTML."""
+    """Descriptor for an image insertion into HTML.
+
+    Optional placement hints allow inline insertion by page segment:
+    - page_index: 1-based page number in the subset PDF.
+    - y: Top pixel coordinate of the region on the page image.
+    - page_height: Total pixel height of the page image used for detection.
+    When any of these hints are missing, append-before-</body> fallback applies.
+    """
 
     image_path: Path  # absolute path inside OEB tree
     label: str  # e.g., "mathblock" or "tableblock"
+    page_index: int | None = None
+    y: int | None = None
+    page_height: int | None = None
 
 
 def _build_figure_html(rel_src: str, label: str) -> str:
@@ -334,5 +345,262 @@ def insert_figures_into_html(
             new_text = text[:idx_html] + snippet + text[idx_html:]
         else:
             new_text = text + snippet
+
+    html_path.write_text(new_text, encoding="utf-8")
+
+
+def _find_pagebreaks(text: str) -> List[int]:
+    """Return end indices of probable page-break markers within HTML.
+
+    Heuristics cover common calibre markers and epub:type pagebreak. Returned
+    positions are the end of the tag to make segment slicing intuitive.
+    """
+    import re
+
+    patterns = [
+        r"<a[^>]+(?:id|name)=(?:\"|')calibre_pb_\d+(?:\"|')[^>]*>\s*</a>",
+        r"<[^>]+epub:type=(?:\"|')pagebreak(?:\"|')[^>]*>",
+        r"<hr[^>]*class=(?:\"|')[^\"']*pagebreak[^\"']*(?:\"|')[^>]*>",
+        r"<span[^>]*class=(?:\"|')[^\"']*pagebreak[^\"']*(?:\"|')[^>]*>\s*</span>",
+    ]
+    breaks: List[int] = []
+    for pat in patterns:
+        for m in re.finditer(pat, text, re.IGNORECASE | re.DOTALL):
+            breaks.append(m.end())
+    breaks.sort()
+    # Deduplicate near-equal indices
+    out: List[int] = []
+    last = -1
+    for b in breaks:
+        if last == -1 or (b - last) > 1:
+            out.append(b)
+            last = b
+    return out
+
+
+def _segment_ranges(text: str, breaks: Sequence[int]) -> List[tuple[int, int]]:
+    if not breaks:
+        return [(0, len(text))]
+    segs: List[tuple[int, int]] = []
+    start = 0
+    for b in breaks:
+        segs.append((start, b))
+        start = b
+    segs.append((start, len(text)))
+    return segs
+
+
+def _find_block_end_positions(text: str, start: int, end: int) -> List[int]:
+    """Return candidate insertion positions inside [start, end) after blocks.
+
+    We consider the end of common block-level closing tags as insertion points.
+    """
+    import re
+
+    region = text[start:end]
+    positions: List[int] = []
+    for m in re.finditer(r"</(p|div|li|table|figure|section|article|pre|h[1-6])>", region, re.IGNORECASE):
+        positions.append(start + m.end())
+    # Also consider <br> and <hr> as soft boundaries
+    for m in re.finditer(r"<(br|hr)\b[^>]*>", region, re.IGNORECASE):
+        positions.append(start + m.end())
+    positions.sort()
+    return positions
+
+
+def _choose_insertion_index(candidates: Sequence[int], ratio: float, segment_end: int) -> int:
+    if not candidates:
+        return segment_end
+    r = max(0.0, min(1.0, float(ratio)))
+    idx = int(round(r * (len(candidates) - 1)))
+    return candidates[idx]
+
+
+def _build_marked_figure(rel_src: str, label: str, add_markers: bool) -> str:
+    html = _build_figure_html(rel_src, label)
+    if not add_markers:
+        return html
+    return f"<!--pdf2epub:fig:start-->{html}<!--pdf2epub:fig:end-->"
+
+
+def _remove_nearby_math_text(text: str) -> str:
+    """Heuristically remove short math-like paragraphs next to inserted figures.
+
+    Looks for paragraphs immediately before or after our markers, and removes
+    those whose plain text resembles a standalone formula (very short, uses
+    math operators or super/subscripts). Conservative on length to avoid over-
+    deletion. Finally removes the markers themselves.
+    """
+    import re
+
+    def _strip_tags(s: str) -> str:
+        return re.sub(r"<[^>]+>", "", s)
+
+    def _looks_like_formula(txt: str) -> bool:
+        t = txt.strip()
+        if not t:
+            return False
+        # Short and contains math-y symbols
+        if len(t) <= 60 and re.search(r"[=<>±×÷∑∫√^_()\[\]{}]", t):
+            return True
+        # Common inline math patterns like x^2, H_0
+        if re.search(r"[A-Za-z]\s*[\^_]\s*\d+", t):
+            return True
+        return False
+
+    # Remove <p> right before marker within the provided string
+    def _remove_before(m: re.Match, current: str) -> str:
+        start = m.start()
+        prefix = current[:start]
+        m_p = re.search(r"<p[^>]*>(.*?)</p>\s*$", prefix, re.IGNORECASE | re.DOTALL)
+        if m_p:
+            content = _strip_tags(m_p.group(1))
+            # Do not cross pagebreak boundaries: only remove if the <p> lies
+            # within the same page segment as the marker.
+            breaks = _find_pagebreaks(current)
+            prev_break = 0
+            for b in breaks:
+                if b <= start:
+                    prev_break = b
+                else:
+                    break
+            if _looks_like_formula(content) and m_p.start() >= prev_break:
+                return current[: m_p.start()] + current[m.start():]
+        return current
+
+    # Remove <p> right after marker
+    def _remove_after(m: re.Match, current: str) -> str:
+        tail = current[m.end():]
+        m_p = re.match(r"\s*<p[^>]*>(.*?)</p>", tail, re.IGNORECASE | re.DOTALL)
+        if m_p:
+            content = _strip_tags(m_p.group(1))
+            # Respect the next pagebreak boundary
+            breaks = _find_pagebreaks(current)
+            next_break = len(current)
+            for b in breaks:
+                if b > m.end():
+                    next_break = b
+                    break
+            if _looks_like_formula(content) and (m.end() + m_p.end()) <= next_break:
+                return current[: m.end()] + current[m.end() + m_p.end():]
+        return current
+
+    # Regex-based removal of adjacent math-like paragraphs to avoid index drift
+    cur = text
+    start_pat = r"<!--pdf2epub:fig:start-->"
+    end_pat = r"<!--pdf2epub:fig:end-->"
+
+    # Remove a math-like paragraph immediately BEFORE the figure marker
+    import functools
+
+    def repl_before(m: re.Match) -> str:
+        p_html = m.group("p")
+        content = _strip_tags(p_html)
+        fig = m.group("fig")
+        if _looks_like_formula(content):
+            return fig
+        return m.group(0)
+
+    before_re = re.compile(
+        rf"(?P<p><p[^>]*>.*?</p>)\s*(?P<fig>{start_pat}.*?{end_pat})",
+        re.IGNORECASE | re.DOTALL,
+    )
+    cur = before_re.sub(repl_before, cur)
+
+    # Remove a math-like paragraph immediately AFTER the figure marker
+    def repl_after(m: re.Match) -> str:
+        fig = m.group("fig")
+        p_html = m.group("p")
+        content = _strip_tags(p_html)
+        if _looks_like_formula(content):
+            return fig
+        return m.group(0)
+
+    after_re = re.compile(
+        rf"(?P<fig>{start_pat}.*?{end_pat})\s*(?P<p><p[^>]*>.*?</p>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    cur = after_re.sub(repl_after, cur)
+
+    # Drop markers
+    cur = re.sub(r"<!--pdf2epub:fig:(?:start|end)-->", "", cur)
+    return cur
+
+
+def insert_figures_inline(
+    html_path: Path,
+    figures: Sequence[FigureSpec],
+    *,
+    page_offset: int = 1,
+    remove_math_text: bool = True,
+) -> None:
+    """Insert figures inline into the HTML using page break heuristics.
+
+    - Splits the document by detected page-break markers into segments.
+    - Maps each FigureSpec to its page segment using ``page_index`` and
+      ``page_offset``. Within a segment, places the figure after a block-level
+      boundary according to its vertical ratio ``y/page_height``.
+    - Falls back to appending at the end when placement hints are missing.
+    """
+    html_path = Path(html_path)
+    if not html_path.exists():
+        raise AssemblyError(f"HTML no encontrado: {html_path}")
+
+    text = html_path.read_text(encoding="utf-8", errors="ignore")
+
+    # If no usable hints, reuse the simple appending strategy
+    if not any((f.page_index and f.y is not None and f.page_height) for f in figures):
+        insert_figures_into_html(html_path, figures)
+        return
+
+    breaks = _find_pagebreaks(text)
+    segments = _segment_ranges(text, breaks)
+
+    # Group figures by segment index
+    per_segment: dict[int, List[FigureSpec]] = {}
+    for f in figures:
+        if f.page_index is None or f.y is None or not f.page_height:
+            continue
+        seg_idx = int(f.page_index) - int(page_offset)
+        if seg_idx < 0 or seg_idx >= len(segments):
+            # Out of known range → append at end later
+            continue
+        per_segment.setdefault(seg_idx, []).append(f)
+
+    # Build all insertions as (abs_position, html_snippet) and apply from end
+    insertions: List[tuple[int, str]] = []
+    for seg_idx, items in per_segment.items():
+        start, end = segments[seg_idx]
+        candidates = _find_block_end_positions(text, start, end)
+        # Sort items by y ratio ascending to preserve reading order
+        items_sorted = sorted(items, key=lambda it: (it.y or 0) / float(it.page_height or 1))
+        for it in items_sorted:
+            rel_src = os.path.relpath(it.image_path, html_path.parent).replace("\\", "/")
+            ratio = (float(it.y) / float(it.page_height)) if it.page_height else 1.0
+            pos = _choose_insertion_index(candidates, ratio, end)
+            html = _build_marked_figure(rel_src, it.label, add_markers=remove_math_text)
+            insertions.append((pos, html))
+
+    # Fallback items with missing/invalid placement → append before </body>
+    fallback_items = [f for f in figures if f not in sum(per_segment.values(), [])]
+    if fallback_items:
+        end_body = text.lower().rfind("</body>")
+        tail_pos = end_body if end_body != -1 else len(text)
+        for f in fallback_items:
+            rel_src = os.path.relpath(f.image_path, html_path.parent).replace("\\", "/")
+            insertions.append((tail_pos, _build_marked_figure(rel_src, f.label, add_markers=remove_math_text)))
+
+    if not insertions:
+        # Nothing to insert
+        return
+
+    # Apply insertions from end to start to keep indices valid
+    insertions.sort(key=lambda t: t[0], reverse=True)
+    new_text = text
+    for pos, snippet in insertions:
+        new_text = new_text[:pos] + ("\n" + snippet + "\n") + new_text[pos:]
+
+    if remove_math_text:
+        new_text = _remove_nearby_math_text(new_text)
 
     html_path.write_text(new_text, encoding="utf-8")

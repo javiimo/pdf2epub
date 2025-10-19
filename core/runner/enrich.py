@@ -22,7 +22,7 @@ from core.oeb.assemble import (
     FigureSpec,
     add_images_to_manifest,
     copy_images_into_oeb,
-    insert_figures_into_html,
+    insert_figures_inline,
     install_default_css,
 )
 from core.runner.layout import LayoutError, LayoutResult, infer_layout_on_image
@@ -178,6 +178,20 @@ def enrich_oeb_with_ml(
     out_dir = Path(preview.workspace.path) / "selective"
     part_images: List[Path] = []
     labels: List[str] = []
+    placements: List[tuple[int, int, int]] = []  # (page_idx, y, page_height)
+
+    def _read_png_height(png_path: Path) -> int:
+        # Minimal PNG header reader: IHDR at byte 16..24 contains width/height (big-endian)
+        try:
+            with open(png_path, 'rb') as f:
+                header = f.read(24)
+            if len(header) >= 24 and header[12:16] == b'IHDR':
+                # width = int.from_bytes(header[16:20], 'big')
+                height = int.from_bytes(header[20:24], 'big')
+                return int(height)
+        except Exception:
+            pass
+        return 0
     for page_idx, post in all_boxes:
         imgs = rasterize_boxes_from_pdf(
             preview.subset_pdf,
@@ -189,15 +203,74 @@ def enrich_oeb_with_ml(
         )
         part_images.extend(imgs)
         labels.extend([b.label for b in post.boxes])
+        # Collect placement hints matching the order of boxes/images
+        page_h = _read_png_height(post.image_path) if hasattr(post, 'image_path') else 0
+        for b in post.boxes:
+            placements.append((int(page_idx), int(b.y), int(page_h)))
 
     # 4) Copy into OEB and update OPF manifest
     copied = copy_images_into_oeb(preview.oeb_output, list(part_images))
     add_images_to_manifest(preview.oeb_output / "content.opf", list(copied))
 
-    # 5) Insert figures in the first spine HTML and ensure CSS
+    # 5) Insert figures inline across spine HTMLs using page-break heuristics
     try:
-        figures = [FigureSpec(image_path=img, label=lbl) for img, lbl in zip(copied, labels)]
-        insert_figures_into_html(preview.spine_first_html, figures)
+        figures = []
+        for (img, lbl), (pidx, y, ph) in zip(zip(copied, labels), placements):
+            figures.append(FigureSpec(image_path=img, label=lbl, page_index=pidx, y=y, page_height=ph))
+
+        # Distribute figures across linear spine files according to page segments
+        spine_files = [it.href for it in (preview.spine_linear_items or [])]
+        if not spine_files:
+            # Fallback to the first HTML only
+            insert_figures_inline(preview.spine_first_html, figures, page_offset=1, remove_math_text=True)
+        else:
+            # Count segments per file using similar heuristics as assemble._find_pagebreaks
+            import re
+
+            def _count_segments(path: Path) -> int:
+                try:
+                    t = path.read_text(encoding='utf-8', errors='ignore')
+                except Exception:
+                    return 1
+                patterns = [
+                    r"<a[^>]+(?:id|name)=(?:\"|')calibre_pb_\d+(?:\"|')[^>]*>\s*</a>",
+                    r"<[^>]+epub:type=(?:\"|')pagebreak(?:\"|')[^>]*>",
+                    r"<hr[^>]*class=(?:\"|')[^\"']*pagebreak[^\"']*(?:\"|')[^>]*>",
+                    r"<span[^>]*class=(?:\"|')[^\"']*pagebreak[^\"']*(?:\"|')[^>]*>\s*</span>",
+                ]
+                breaks = 0
+                for pat in patterns:
+                    breaks += len(list(re.finditer(pat, t, re.IGNORECASE | re.DOTALL)))
+                return max(1, breaks + 1)
+
+            seg_counts = [ _count_segments(p) for p in spine_files ]
+            # Assign page ranges sequentially
+            start = 1
+            file_ranges: List[tuple[Path, int, int]] = []  # (file, start_page, end_page)
+            for f, nseg in zip(spine_files, seg_counts):
+                end = start + nseg - 1
+                file_ranges.append((f, start, end))
+                start = end + 1
+
+            # Group figures into files
+            by_file: dict[Path, List[FigureSpec]] = {f: [] for f, _, _ in file_ranges}
+            for fig in figures:
+                assigned = False
+                for f, s, e in file_ranges:
+                    if fig.page_index is not None and s <= fig.page_index <= e:
+                        by_file[f].append(fig)
+                        assigned = True
+                        break
+                if not assigned:
+                    # Put unassigned into the first file
+                    by_file[file_ranges[0][0]].append(fig)
+
+            # Insert into each file with the appropriate offset
+            for f, s, e in file_ranges:
+                items = by_file.get(f) or []
+                if not items:
+                    continue
+                insert_figures_inline(f, items, page_offset=s, remove_math_text=True)
     finally:
         # CSS is a best-effort enhancement
         try:
@@ -206,4 +279,3 @@ def enrich_oeb_with_ml(
             pass
 
     return EnrichResult(total_pages=len(page_images), total_boxes=total_boxes, images_written=tuple(copied))
-
