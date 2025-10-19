@@ -56,9 +56,9 @@ Integración y pruebas para inline
 - [ ] Pruebas en Mastering.pdf en una página con fórmulas inline (a identificar en el dataset) confirmando que la imagen queda entre las palabras correctas.
 
 Operativa y toggles en la GUI
-- [ ] Parámetro de DPI (360–420) y control de compresión PNG/JPEG.
-- [ ] Toggle “eliminar texto de ecuación” (bloque/inline) con umbrales configurables.
-- [ ] Registro de métricas: número de cajas, cobertura por página, método de colocación usado (anchor/ratio/fallback).
+- [x] Parámetro de DPI (360–420) y control de compresión PNG/JPEG.
+- [x] Toggle “eliminar texto de ecuación” (bloque/inline) con umbrales configurables.
+- [x] Registro de métricas: número de cajas, cobertura por página, método de colocación usado (anchor/ratio/fallback).
 
 Notas de implementación
 - Mantener el código modular (assemble/enrich/postprocess) y tests unitarios pequeños antes de integrar con Mastering.pdf.

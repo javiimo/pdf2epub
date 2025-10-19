@@ -305,6 +305,12 @@ class FigureSpec:
     page_height: int | None = None
 
 
+@dataclass(frozen=True)
+class PlacementReport:
+    placed_ratio: int = 0
+    placed_fallback: int = 0
+
+
 def _build_figure_html(rel_src: str, label: str) -> str:
     # For mathblock → <figure><img class="mathblock" src="..."/></figure>
     # For tableblock → <figure class="table"><img class="tableblock" src="..."/></figure>
@@ -533,7 +539,7 @@ def insert_figures_inline(
     *,
     page_offset: int = 1,
     remove_math_text: bool = True,
-) -> None:
+) -> PlacementReport:
     """Insert figures inline into the HTML using page break heuristics.
 
     - Splits the document by detected page-break markers into segments.
@@ -551,7 +557,7 @@ def insert_figures_inline(
     # If no usable hints, reuse the simple appending strategy
     if not any((f.page_index and f.y is not None and f.page_height) for f in figures):
         insert_figures_into_html(html_path, figures)
-        return
+        return PlacementReport(placed_ratio=0, placed_fallback=len(figures))
 
     breaks = _find_pagebreaks(text)
     segments = _segment_ranges(text, breaks)
@@ -569,6 +575,8 @@ def insert_figures_inline(
 
     # Build all insertions as (abs_position, html_snippet) and apply from end
     insertions: List[tuple[int, str]] = []
+    ratio_placed = 0
+    fallback_count = 0
     for seg_idx, items in per_segment.items():
         start, end = segments[seg_idx]
         candidates = _find_block_end_positions(text, start, end)
@@ -580,6 +588,7 @@ def insert_figures_inline(
             pos = _choose_insertion_index(candidates, ratio, end)
             html = _build_marked_figure(rel_src, it.label, add_markers=remove_math_text)
             insertions.append((pos, html))
+            ratio_placed += 1
 
     # Fallback items with missing/invalid placement → append before </body>
     fallback_items = [f for f in figures if f not in sum(per_segment.values(), [])]
@@ -589,10 +598,11 @@ def insert_figures_inline(
         for f in fallback_items:
             rel_src = os.path.relpath(f.image_path, html_path.parent).replace("\\", "/")
             insertions.append((tail_pos, _build_marked_figure(rel_src, f.label, add_markers=remove_math_text)))
+            fallback_count += 1
 
     if not insertions:
         # Nothing to insert
-        return
+        return PlacementReport(placed_ratio=0, placed_fallback=0)
 
     # Apply insertions from end to start to keep indices valid
     insertions.sort(key=lambda t: t[0], reverse=True)
@@ -604,3 +614,4 @@ def insert_figures_inline(
         new_text = _remove_nearby_math_text(new_text)
 
     html_path.write_text(new_text, encoding="utf-8")
+    return PlacementReport(placed_ratio=ratio_placed, placed_fallback=fallback_count)

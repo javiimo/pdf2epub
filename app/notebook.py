@@ -693,6 +693,37 @@ class ConfigNotebook(ttk.Frame):
         report: PresetMergeReport = apply_presets(config.options, selection)
         self._forms[tab_id].sync_from_config()
         self._summary_labels[tab_id].configure(text=self._format_summary(config))
+        # Apply post-process extras from presets with 'pp.' namespace in order
+        if report.applied:
+            for preset in report.applied:
+                for key, value in (preset.options or {}).items():
+                    if not isinstance(key, str) or not key.startswith("pp."):
+                        continue
+                    if key == "pp.dpi":
+                        try:
+                            config.extras["enrich.dpi"] = int(value) if value is not None else 360
+                        except Exception:
+                            pass
+                    elif key == "pp.remove-math-text":
+                        config.extras["remove_math_text"] = bool(value)
+                    elif key == "pp.suppress-math-in-tables":
+                        config.extras["suppress_math_inside_tables"] = bool(value)
+                    elif key == "pp.table-cover-threshold":
+                        try:
+                            config.extras["table_cover_threshold"] = float(value) if value is not None else 0.9
+                        except Exception:
+                            pass
+                    elif key == "pp.image-format":
+                        fmt = str(value).lower() if value is not None else "png"
+                        if fmt not in ("png", "jpeg"):
+                            fmt = "png"
+                        config.extras["enrich.format"] = fmt
+                    elif key == "pp.jpeg-quality":
+                        try:
+                            config.extras["enrich.jpeg_quality"] = max(50, min(100, int(value)))
+                        except Exception:
+                            pass
+        self._sync_postprocess_controls(tab_id)
         applied_names = ", ".join(preset.name for preset in report.applied) or "Ninguno"
         self._append_console(tab_id, f"[OK] Presets aplicados: {applied_names}")
 
@@ -736,12 +767,22 @@ class ConfigNotebook(ttk.Frame):
         if not name:
             return
 
+        # Include post-process extras into preset options with 'pp.' namespace
+        pp_options = {
+            **copy.deepcopy(config.options),
+            "pp.dpi": int(config.extras.get("enrich.dpi", 360) or 360),
+            "pp.remove-math-text": bool(config.extras.get("remove_math_text", True)),
+            "pp.suppress-math-in-tables": bool(config.extras.get("suppress_math_inside_tables", True)),
+            "pp.table-cover-threshold": float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
+            "pp.image-format": str(config.extras.get("enrich.format", "png")).lower(),
+            "pp.jpeg-quality": int(config.extras.get("enrich.jpeg_quality", 85) or 85),
+        }
         preset = Preset(
             id=f"custom-{uuid4().hex}",
             name=name.strip(),
             description=f"Preset personalizado basado en {config.title}",
             layer="custom",
-            options=copy.deepcopy(config.options),
+            options=pp_options,
         )
         self._presets.append(preset)
         self._append_console(tab_id, f"[OK] Preset guardado: {preset.name}")
@@ -828,7 +869,7 @@ class ConfigNotebook(ttk.Frame):
         left = ttk.Frame(widget)
         left.grid(row=0, column=0, sticky="nsew", padx=(12, 6), pady=12)
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(2, weight=1)
+        left.rowconfigure(3, weight=1)
 
         right = ttk.Frame(widget)
         right.grid(row=0, column=1, sticky="nsew", padx=(6, 12), pady=12)
@@ -855,9 +896,10 @@ class ConfigNotebook(ttk.Frame):
 
         self._create_input_controls(left, config, tab_widget_id)
         self._create_side_panel(right, tab_widget_id, config)
+        self._create_postprocess_controls(left, tab_widget_id, config)
 
         form_container = ttk.Frame(left)
-        form_container.grid(row=2, column=0, sticky="nsew")
+        form_container.grid(row=3, column=0, sticky="nsew")
         form_container.columnconfigure(0, weight=1)
         form_container.rowconfigure(0, weight=1)
 
@@ -892,7 +934,7 @@ class ConfigNotebook(ttk.Frame):
         form.grid(row=0, column=0, sticky="nsew")
 
         status = ttk.Label(left, text="Listo", anchor="w", padding=(12, 6), wraplength=400, justify="left")
-        status.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        status.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         status.bind(
             "<Configure>",
             lambda event, label=status: self._adjust_wrap(label, event.width, min_wrap=200),
@@ -908,6 +950,108 @@ class ConfigNotebook(ttk.Frame):
         self.notebook.select(widget)
         self.after_idle(self.refresh_layouts)
         return tab_widget_id
+
+    def _create_postprocess_controls(self, parent: ttk.Frame, tab_widget_id: str, config: TabConfiguration) -> None:
+        frame = ttk.LabelFrame(parent, text="Post-procesado (detección/HTML)")
+        frame.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        frame.columnconfigure(1, weight=1)
+
+        controls: Dict[str, Any] = {}
+
+        # DPI selector for detectors and selective rasterization
+        from_value = 360
+        to_value = 420
+        dpi_var = tk.IntVar(value=int(config.extras.get("enrich.dpi", from_value)))
+        ttk.Label(frame, text="DPI (360–420)").grid(row=0, column=0, sticky="w", padx=(8, 6), pady=4)
+        dpi_spin = tk.Spinbox(frame, from_=from_value, to=to_value, increment=10, textvariable=dpi_var, width=6)
+        dpi_spin.grid(row=0, column=1, sticky="w", padx=(0, 8), pady=4)
+
+        # Toggle: remove math-like text paragraphs near inserted figures
+        remove_var = tk.BooleanVar(value=bool(config.extras.get("remove_math_text", True)))
+        remove_cb = ttk.Checkbutton(frame, text="Eliminar texto de ecuación (bloque)", variable=remove_var)
+        remove_cb.grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+
+        # Optional: suppress math inside tables
+        suppress_var = tk.BooleanVar(value=bool(config.extras.get("suppress_math_inside_tables", True)))
+        suppress_cb = ttk.Checkbutton(frame, text="Suprimir fórmulas dentro de tablas", variable=suppress_var)
+        suppress_cb.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+
+        # Optional threshold for table coverage
+        thresh_var = tk.DoubleVar(value=float(config.extras.get("table_cover_threshold", 0.9) or 0.9))
+        ttk.Label(frame, text="Umbral cobertura tabla").grid(row=3, column=0, sticky="w", padx=(8, 6), pady=4)
+        thresh_entry = ttk.Entry(frame, textvariable=thresh_var, width=6)
+        thresh_entry.grid(row=3, column=1, sticky="w", padx=(0, 8), pady=4)
+
+        # Image format selection for selective rasterization
+        fmt_var = tk.StringVar(value=str(config.extras.get("enrich.format", "png")).lower())
+        ttk.Label(frame, text="Formato imagen").grid(row=4, column=0, sticky="w", padx=(8, 6), pady=4)
+        fmt_combo = ttk.Combobox(frame, textvariable=fmt_var, values=("png", "jpeg"), state="readonly", width=8)
+        fmt_combo.grid(row=4, column=1, sticky="w", padx=(0, 8), pady=4)
+
+        # JPEG quality when jpeg is selected
+        jq_var = tk.IntVar(value=int(config.extras.get("enrich.jpeg_quality", 85) or 85))
+        ttk.Label(frame, text="JPEG calidad (50–100)").grid(row=5, column=0, sticky="w", padx=(8, 6), pady=4)
+        jq_spin = tk.Spinbox(frame, from_=50, to=100, increment=5, textvariable=jq_var, width=6)
+        jq_spin.grid(row=5, column=1, sticky="w", padx=(0, 8), pady=4)
+
+        def _on_change(*_args: Any) -> None:
+            cfg = self._config_by_tab[tab_widget_id]
+            try:
+                cfg.extras["enrich.dpi"] = max(200, min(1200, int(dpi_var.get())))
+            except Exception:
+                cfg.extras["enrich.dpi"] = from_value
+            cfg.extras["remove_math_text"] = bool(remove_var.get())
+            cfg.extras["suppress_math_inside_tables"] = bool(suppress_var.get())
+            try:
+                cfg.extras["table_cover_threshold"] = float(thresh_var.get())
+            except Exception:
+                cfg.extras["table_cover_threshold"] = 0.9
+            fmt = str(fmt_var.get()).lower()
+            if fmt not in ("png", "jpeg"):
+                fmt = "png"
+            cfg.extras["enrich.format"] = fmt
+            try:
+                cfg.extras["enrich.jpeg_quality"] = max(50, min(100, int(jq_var.get())))
+            except Exception:
+                cfg.extras["enrich.jpeg_quality"] = 85
+            # Enable/disable JPEG quality control
+            try:
+                state = tk.NORMAL if fmt == "jpeg" else tk.DISABLED
+                jq_spin.configure(state=state)
+            except Exception:
+                pass
+
+        dpi_var.trace_add("write", _on_change)
+        remove_var.trace_add("write", _on_change)
+        suppress_var.trace_add("write", _on_change)
+        thresh_var.trace_add("write", _on_change)
+        fmt_var.trace_add("write", _on_change)
+        jq_var.trace_add("write", _on_change)
+
+        controls.update(
+            {
+                "frame": frame,
+                "dpi_var": dpi_var,
+                "remove_var": remove_var,
+                "suppress_var": suppress_var,
+                "thresh_var": thresh_var,
+                "fmt_var": fmt_var,
+                "jq_var": jq_var,
+            }
+        )
+        self._postprocess_controls[tab_widget_id] = controls
+
+    def _sync_postprocess_controls(self, tab_widget_id: str) -> None:
+        controls = self._postprocess_controls.get(tab_widget_id)
+        if not controls:
+            return
+        cfg = self._config_by_tab[tab_widget_id]
+        controls["dpi_var"].set(int(cfg.extras.get("enrich.dpi", 360)))
+        controls["remove_var"].set(bool(cfg.extras.get("remove_math_text", True)))
+        controls["suppress_var"].set(bool(cfg.extras.get("suppress_math_inside_tables", True)))
+        controls["thresh_var"].set(float(cfg.extras.get("table_cover_threshold", 0.9) or 0.9))
+        controls["fmt_var"].set(str(cfg.extras.get("enrich.format", "png")).lower())
+        controls["jq_var"].set(int(cfg.extras.get("enrich.jpeg_quality", 85) or 85))
 
     def _current_tab_id(self) -> Optional[str]:
         selection = self.notebook.select()
@@ -1449,11 +1593,12 @@ class ConfigNotebook(ttk.Frame):
                     enrich_oeb_with_ml(
                         result,
                         options=EnrichOptions(
-                            dpi=360,
+                            dpi=int(config.extras.get("enrich.dpi", 360) or 360),
                             device="cpu",
                             paddleocr_path=None,
                             suppress_math_inside_tables=bool(config.extras.get("suppress_math_inside_tables", True)),
                             table_cover_threshold=float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
+                            remove_math_text=bool(config.extras.get("remove_math_text", True)),
                         ),
                         send=send,
                         run=self._make_streaming_run(tab_id, send, cancel_event),
@@ -1563,11 +1708,12 @@ class ConfigNotebook(ttk.Frame):
                     enrich_oeb_with_ml(
                         prev,
                         options=EnrichOptions(
-                            dpi=360,
+                            dpi=int(config.extras.get("enrich.dpi", 360) or 360),
                             device="cpu",
                             paddleocr_path=None,
                             suppress_math_inside_tables=bool(config.extras.get("suppress_math_inside_tables", True)),
                             table_cover_threshold=float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
+                            remove_math_text=bool(config.extras.get("remove_math_text", True)),
                         ),
                         send=send,
                         run=self._make_streaming_run(tab_id, send, cancel_event),

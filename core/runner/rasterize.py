@@ -137,6 +137,8 @@ def rasterize_boxes_from_pdf(
     *,
     dpi: int = 360,
     labels: Optional[Sequence[str]] = ("mathblock", "tableblock"),
+    image_format: str = "png",
+    jpeg_quality: int = 85,
     pdftocairo_path: str = "pdftocairo",
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> Tuple[Path, ...]:
@@ -182,21 +184,47 @@ def rasterize_boxes_from_pdf(
     # Filter boxes by label if requested
     use_boxes = [b for b in boxes if (labels is None or b.label in labels)]
 
+    fmt = (image_format or "png").strip().lower()
+    if fmt not in ("png", "jpeg", "jpg"):
+        fmt = "png"
+    if fmt == "jpg":
+        fmt = "jpeg"
+
     for idx, b in enumerate(use_boxes, start=1):
         bx, by, bw, bh = _clip_to_positive(int(b.x), int(b.y), int(b.width), int(b.height))
         crop = CropRect(x=bx, y=by, width=bw, height=bh)
         # Build output stem without extension; pdftocairo adds the .png suffix even with -singlefile
         out_stem = output_dir / f"part-p{int(page):04d}-b{idx:02d}"
-        command = build_pdftocairo_png_command(
-            input_pdf,
-            out_stem,
-            dpi=dpi,
-            crop=crop,
-            first_page=page,
-            last_page=page,
-            pdftocairo_path=pdftocairo_path,
-            singlefile=True,
-        )
+        if fmt == "png":
+            command = build_pdftocairo_png_command(
+                input_pdf,
+                out_stem,
+                dpi=dpi,
+                crop=crop,
+                first_page=page,
+                last_page=page,
+                pdftocairo_path=pdftocairo_path,
+                singlefile=True,
+            )
+        else:
+            # Build JPEG command: -jpeg with optional -jpegopt quality=<n>
+            command = [pdftocairo_path, "-jpeg", "-r", str(int(dpi))]
+            command += ["-f", str(int(page)), "-l", str(int(page))]
+            if crop is not None:
+                command += [
+                    "-x",
+                    str(int(crop.x)),
+                    "-y",
+                    str(int(crop.y)),
+                    "-W",
+                    str(int(crop.width)),
+                    "-H",
+                    str(int(crop.height)),
+                ]
+            command.append("-singlefile")
+            q = max(40, min(100, int(jpeg_quality)))
+            command += ["-jpegopt", f"quality={q}"]
+            command += [str(input_pdf), str(out_stem)]
 
         try:
             run(command, check=True, capture_output=True, text=True)
@@ -206,7 +234,6 @@ def rasterize_boxes_from_pdf(
             ) from exc
         except OSError as exc:
             raise RasterizeError(f"No se pudo ejecutar pdftocairo: {exc}") from exc
-
-        outputs.append(out_stem.with_suffix('.png'))
+        outputs.append(out_stem.with_suffix('.png' if fmt == "png" else '.jpg'))
 
     return tuple(outputs)

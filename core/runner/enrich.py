@@ -46,6 +46,12 @@ class EnrichOptions:
     paddleocr_path: Optional[str] = None  # auto-detect .venv/bin/paddleocr when None
     suppress_math_inside_tables: bool = True
     table_cover_threshold: float = 0.9
+    # Whether to remove short math-like paragraphs adjacent to figures in HTML
+    remove_math_text: bool = True
+    # Output image format for selective rasterization (png or jpeg)
+    image_format: str = "png"
+    # JPEG quality (when image_format is jpeg)
+    jpeg_quality: int = 85
 
 
 @dataclass(frozen=True)
@@ -180,18 +186,18 @@ def enrich_oeb_with_ml(
     labels: List[str] = []
     placements: List[tuple[int, int, int]] = []  # (page_idx, y, page_height)
 
-    def _read_png_height(png_path: Path) -> int:
+    def _read_png_dims(png_path: Path) -> tuple[int, int]:
         # Minimal PNG header reader: IHDR at byte 16..24 contains width/height (big-endian)
         try:
             with open(png_path, 'rb') as f:
                 header = f.read(24)
             if len(header) >= 24 and header[12:16] == b'IHDR':
-                # width = int.from_bytes(header[16:20], 'big')
+                width = int.from_bytes(header[16:20], 'big')
                 height = int.from_bytes(header[20:24], 'big')
-                return int(height)
+                return int(width), int(height)
         except Exception:
-            pass
-        return 0
+            return (0, 0)
+    coverage_by_page: dict[int, float] = {}
     for page_idx, post in all_boxes:
         imgs = rasterize_boxes_from_pdf(
             preview.subset_pdf,
@@ -199,12 +205,22 @@ def enrich_oeb_with_ml(
             int(page_idx),
             list(post.boxes),
             dpi=dpi,
+            image_format=str((opts.image_format or "png").lower()),
+            jpeg_quality=int(opts.jpeg_quality or 85),
             run=run,
         )
         part_images.extend(imgs)
         labels.extend([b.label for b in post.boxes])
         # Collect placement hints matching the order of boxes/images
-        page_h = _read_png_height(post.image_path) if hasattr(post, 'image_path') else 0
+        pw, ph = _read_png_dims(post.image_path) if hasattr(post, 'image_path') else (0, 0)
+        if pw > 0 and ph > 0:
+            try:
+                total_area = float(pw * ph)
+                area_boxes = sum(max(0, b.width) * max(0, b.height) for b in post.boxes)
+                coverage_by_page[int(page_idx)] = min(1.0, float(area_boxes) / total_area)
+            except Exception:
+                pass
+        page_h = ph
         for b in post.boxes:
             placements.append((int(page_idx), int(b.y), int(page_h)))
 
@@ -220,9 +236,16 @@ def enrich_oeb_with_ml(
 
         # Distribute figures across linear spine files according to page segments
         spine_files = [it.href for it in (preview.spine_linear_items or [])]
+        placed_ratio = 0
+        placed_fallback = 0
         if not spine_files:
             # Fallback to the first HTML only
-            insert_figures_inline(preview.spine_first_html, figures, page_offset=1, remove_math_text=True)
+            rep = insert_figures_inline(preview.spine_first_html, figures, page_offset=1, remove_math_text=bool(opts.remove_math_text))
+            try:
+                placed_ratio += int(getattr(rep, "placed_ratio", 0))
+                placed_fallback += int(getattr(rep, "placed_fallback", 0))
+            except Exception:
+                pass
         else:
             # Count segments per file using similar heuristics as assemble._find_pagebreaks
             import re
@@ -270,11 +293,26 @@ def enrich_oeb_with_ml(
                 items = by_file.get(f) or []
                 if not items:
                     continue
-                insert_figures_inline(f, items, page_offset=s, remove_math_text=True)
+                rep = insert_figures_inline(f, items, page_offset=s, remove_math_text=bool(opts.remove_math_text))
+                try:
+                    placed_ratio += int(getattr(rep, "placed_ratio", 0))
+                    placed_fallback += int(getattr(rep, "placed_fallback", 0))
+                except Exception:
+                    pass
     finally:
         # CSS is a best-effort enhancement
         try:
             install_default_css(preview.oeb_output)
+        except Exception:
+            pass
+
+    # 6) Metrics to UI
+    if send:
+        try:
+            send("message", f"Métricas: cajas totales={total_boxes}")
+            for p, cov in sorted(coverage_by_page.items()):
+                send("message", f"  p.{p}: cobertura={cov:.1%}")
+            send("message", f"Colocación figuras: ratio={placed_ratio}, fallback={placed_fallback}")
         except Exception:
             pass
 
