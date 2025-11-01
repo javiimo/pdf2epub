@@ -4,10 +4,10 @@ Objetivo general
 - Transformar el pipeline para que, antes de llamar a Calibre, cada región detectada como fórmula o tabla en el PDF sea rasterizada a imagen y sustituya al contenido vectorial/texto original.
 
 Preparación de detección
-- [ ] Normalizar la rasterización por página: generar PNGs consistentes (pdftocairo o fitz) con DPI conocido y registrar `cropbox`, `mediabox`, `rotate`.
-- [ ] Ejecutar PaddleOCR layout + TSR sobre cada PNG. Guardar bounding boxes en píxeles junto a metadatos (página, puntuación, etiqueta).
-- [ ] Filtrar cajas triviales y fusionar tablas de layout y TSR (IoU ≥ umbral). Mantener etiqueta `math` vs `table`.
-- [ ] Detectar regiones ya rasterizadas en el PDF (imágenes existentes) y marcar cajas coincidentes para omitirlas.
+- [x] Normalizar la rasterización por página: generar PNGs consistentes (pdftocairo o fitz) con DPI conocido y registrar `cropbox`, `mediabox`, `rotate`.
+- [x] Ejecutar PaddleOCR layout + TSR sobre cada PNG. Guardar bounding boxes en píxeles junto a metadatos (página, puntuación, etiqueta).
+- [x] Filtrar cajas triviales y fusionar tablas de layout y TSR (IoU ≥ umbral). Mantener etiqueta `math` vs `table`.
+- [x] Detectar regiones ya rasterizadas en el PDF (imágenes existentes) y marcar cajas coincidentes para omitirlas.
 
 Mapeo de coordenadas
 - [ ] Calcular `scale = Wpx / width_pt` para cada página rasterizada (usar `cropbox`).

@@ -222,6 +222,25 @@ def _iou(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
     return inter / union
 
 
+def _overlap_with_smaller(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    if aw <= 0 or ah <= 0 or bw <= 0 or bh <= 0:
+        return 0.0
+    ax2, ay2 = ax + aw, ay + ah
+    bx2, by2 = bx + bw, by + bh
+    ix1, iy1 = max(ax, bx), max(ay, by)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    if iw <= 0 or ih <= 0:
+        return 0.0
+    inter = iw * ih
+    smaller = min(aw * ah, bw * bh)
+    if smaller <= 0:
+        return 0.0
+    return inter / smaller
+
+
 def fuse_tables_with_layout(
     layout: LayoutResult,
     tatr_tables: Sequence[TableBox],
@@ -242,15 +261,15 @@ def fuse_tables_with_layout(
 
     for t in tatr_tables:
         t_rect = (t.x, t.y, t.width, t.height)
-        best_iou = 0.0
+        best_score = 0.0
         best_idx = -1
         for i, l in enumerate(layout_tables):
             l_rect = (l.x, l.y, l.width, l.height)
-            iou = _iou(t_rect, l_rect)
-            if iou > best_iou:
-                best_iou = iou
+            overlap = max(_iou(t_rect, l_rect), _overlap_with_smaller(t_rect, l_rect))
+            if overlap > best_score:
+                best_score = overlap
                 best_idx = i
-        if best_iou >= iou_threshold and best_idx >= 0:
+        if best_score >= iou_threshold and best_idx >= 0:
             l = layout_tables[best_idx]
             used[best_idx] = True
             # Union rectangle

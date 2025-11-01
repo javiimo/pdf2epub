@@ -18,6 +18,8 @@ Fuentes principales de opciones y descripciones: manual oficial de Calibre y man
 
 Dispones de una checklist.md donde deberás anotar cada tarea según la completes y de tool_description.md con un listado de las opciones de ebook-convert y lo que hacen brevemente.
 
+Usa siempre los ejecutables de `.venv` para tests/comandos y marca checklist.md en cuanto cierres cada tarea.
+
 # Estilo de programación
 
 Asegúrate de usar estilo clean code. Hacerlo mantenible y tratar de añadir únicamente los cambios estrictamente necesarios y probar que funcionan con toy examples. Enfoca cada cambio para que respete el plan global y todas las piezas casen adecuadamente. Trata de hacerlo modular para poder detectar los fallos. Haz exceptions significativos y solo trata de resolverlos cuando tengas una forma clara de hacerlo.
