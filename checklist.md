@@ -26,10 +26,10 @@ Redacción del contenido original
 - [x] Validar que tras la redacción no queda contenido seleccionable ni vectorial en la región.
 
 Inserción de imágenes en el PDF
-- [ ] Pintar fondo blanco en `rect_pt` (para evitar transparencia sobre contenido residual).
-- [ ] Insertar el XObject `/Image` con CTM que mapee `[0,Wpx]×[0,Hpx]` a `rect_pt`.
-- [ ] Ajustar el orden en el content stream para respetar la posición de lectura y mantener otros elementos intactos.
-- [ ] Añadir metadatos opcionales (por ejemplo `/Subtype /Form` envolviendo la imagen) para trazabilidad.
+- [x] Pintar fondo blanco en `rect_pt` (para evitar transparencia sobre contenido residual).
+- [x] Insertar el XObject `/Image` con CTM que mapee `[0,Wpx]×[0,Hpx]` a `rect_pt`.
+- [x] Ajustar el orden en el content stream para respetar la posición de lectura y mantener otros elementos intactos.
+- [x] Añadir metadatos opcionales (por ejemplo `/Subtype /Form` envolviendo la imagen) para trazabilidad.
 
 Control de calidad y pruebas
 - [ ] Verificar que la selección de texto sobre las zonas procesadas es vacía en un visor PDF.
