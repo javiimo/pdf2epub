@@ -38,6 +38,16 @@ class PostprocessOptions:
     label_map: Mapping[str, str] = None  # type: ignore[assignment]
     suppress_math_inside_tables: bool = True
     table_cover_threshold: float = 0.9
+    # Suppress math that overlaps with text paragraphs (inline math)
+    suppress_inline_math: bool = True
+    # Consider a formula inline if the intersection with any text box
+    # covers at least this fraction of the math box area.
+    #
+    # In practice, the layout model often draws relatively tight boxes for
+    # inline equations that overlap surrounding text by roughly half their
+    # area. A threshold around 0.5–0.7 is more robust than 0.9 for filtering
+    # inline math while keeping display equations.
+    inline_cover_threshold: float = 0.6
 
     def __post_init__(self) -> None:  # type: ignore[override]
         if self.label_map is None:
@@ -175,6 +185,39 @@ def postprocess_math_and_tables(
             if not covered:
                 kept.append(m)
         per_label_boxes["mathblock"] = kept
+
+    # Optionally suppress math boxes considered inline (overlapping text)
+    if opts.suppress_inline_math:
+        math_list = per_label_boxes.get("mathblock", [])
+        if math_list:
+            # Collect raw text-like rectangles from the original layout.
+            # Some models label plain text as 'text' and headings as
+            # 'paragraph_title' or 'title'. We consider these as text-like
+            # to detect inline formulas overlapping normal flow.
+            text_like_labels = {"text", "paragraph_title", "title"}
+            text_rects: List[Tuple[int, int, int, int]] = [
+                (b.x, b.y, b.width, b.height)
+                for b in layout.boxes
+                if (b.label in text_like_labels)
+            ]
+            if text_rects:
+                kept_inline: List[LayoutBox] = []
+                for m in math_list:
+                    m_area = m.width * m.height
+                    if m_area <= 0:
+                        continue
+                    m_rect = (m.x, m.y, m.width, m.height)
+                    inline_like = False
+                    for t in text_rects:
+                        inter = _intersection_area(m_rect, t)
+                        # Mark as inline if a significant fraction of the
+                        # math box area overlaps any text-like region.
+                        if inter > 0 and (inter / float(m_area)) >= opts.inline_cover_threshold:
+                            inline_like = True
+                            break
+                    if not inline_like:
+                        kept_inline.append(m)
+                per_label_boxes["mathblock"] = kept_inline
 
     # Flatten back preserving a stable order: math then tables for readability
     final_list: List[LayoutBox] = []

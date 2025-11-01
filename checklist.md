@@ -39,6 +39,9 @@ Aceptación Bloque A
 
 Bloque B — Tratamiento específico de fórmulas inline (posterior)
 
+Prepaso (mitigación inmediata)
+- [x] Suprimir fórmulas inline para no insertarlas como bloques: detectar solape de la bbox de fórmula con una bbox de texto y descartar cuando la cobertura ≥ 60%.
+
 Detección de inline
 - [ ] Criterios para “inline”: bbox totalmente contenido dentro de un párrafo de texto (segmento layout “text” que nuestro algoritmo marca) y altura relativa pequeña vs. línea.
 - [ ] Postprocesado: marcar estas cajas como `mathinline` y separarlas del flujo `mathblock`.

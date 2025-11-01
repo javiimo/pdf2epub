@@ -414,12 +414,31 @@ def _find_block_end_positions(text: str, start: int, end: int) -> List[int]:
     return positions
 
 
-def _choose_insertion_index(candidates: Sequence[int], ratio: float, segment_end: int) -> int:
+def _choose_insertion_index(
+    candidates: Sequence[int],
+    ratio: float,
+    segment_start: int,
+    segment_end: int,
+) -> int:
+    """Choose insertion position closest to the desired ratio within the segment.
+
+    Instead of picking the Nth candidate by rank, select the candidate whose
+    absolute index is closest to ``segment_start + ratio * (segment_end - segment_start)``.
+    This better reflects the visual proportion on the original page.
+    """
     if not candidates:
         return segment_end
     r = max(0.0, min(1.0, float(ratio)))
-    idx = int(round(r * (len(candidates) - 1)))
-    return candidates[idx]
+    target = int(round(segment_start + r * (segment_end - segment_start)))
+    # Find candidate with minimal distance to target
+    best = candidates[0]
+    best_dist = abs(best - target)
+    for c in candidates[1:]:
+        d = abs(c - target)
+        if d < best_dist:
+            best = c
+            best_dist = d
+    return best
 
 
 def _build_marked_figure(rel_src: str, label: str, add_markers: bool) -> str:
@@ -567,10 +586,15 @@ def insert_figures_inline(
     for f in figures:
         if f.page_index is None or f.y is None or not f.page_height:
             continue
-        seg_idx = int(f.page_index) - int(page_offset)
-        if seg_idx < 0 or seg_idx >= len(segments):
-            # Out of known range → append at end later
-            continue
+        raw_idx = int(f.page_index) - int(page_offset)
+        # If the document has fewer segments than expected (or none),
+        # clamp out-of-range indices into the closest valid segment so
+        # we still place figures approximately instead of falling back
+        # to appending at the end.
+        if len(segments) <= 1:
+            seg_idx = 0
+        else:
+            seg_idx = max(0, min(raw_idx, len(segments) - 1))
         per_segment.setdefault(seg_idx, []).append(f)
 
     # Build all insertions as (abs_position, html_snippet) and apply from end
@@ -585,7 +609,7 @@ def insert_figures_inline(
         for it in items_sorted:
             rel_src = os.path.relpath(it.image_path, html_path.parent).replace("\\", "/")
             ratio = (float(it.y) / float(it.page_height)) if it.page_height else 1.0
-            pos = _choose_insertion_index(candidates, ratio, end)
+            pos = _choose_insertion_index(candidates, ratio, start, end)
             html = _build_marked_figure(rel_src, it.label, add_markers=remove_math_text)
             insertions.append((pos, html))
             ratio_placed += 1
