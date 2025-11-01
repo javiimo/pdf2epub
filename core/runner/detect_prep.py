@@ -17,6 +17,7 @@ try:  # PyMuPDF is optional at import time; required when executing helpers.
 except Exception:  # pragma: no cover - optional dependency guard
     fitz = None  # type: ignore[assignment]
 
+from .coordinates import pdf_rect_to_pixels
 from .layout import LayoutBox, LayoutResult, LayoutError, infer_layout_on_image
 from .rasterize import RasterizeError, rasterize_pdf_to_png
 from .tables import TableBox, TableDetectError, fuse_tables_with_layout, infer_tables_on_image
@@ -60,13 +61,38 @@ class PageImage:
         return float(self.cropbox[3] - self.cropbox[1])
 
     @property
+    def rotated_width_pts(self) -> float:
+        """Return page width in points after applying the rotation."""
+
+        if self.rotate % 180 == 0:
+            return self.width_pts
+        return self.height_pts
+
+    @property
+    def rotated_height_pts(self) -> float:
+        """Return page height in points after applying the rotation."""
+
+        if self.rotate % 180 == 0:
+            return self.height_pts
+        return self.width_pts
+
+    @property
+    def scale(self) -> float:
+        """Return the pixel-per-point scale for the rasterized page."""
+
+        width_pts = self.rotated_width_pts
+        if width_pts:
+            return float(self.width_px) / width_pts
+        return 0.0
+
+    @property
     def scale_x(self) -> float:
-        pts = self.width_pts
+        pts = self.rotated_width_pts
         return float(self.width_px) / pts if pts else 0.0
 
     @property
     def scale_y(self) -> float:
-        pts = self.height_pts
+        pts = self.rotated_height_pts
         return float(self.height_px) / pts if pts else 0.0
 
 
@@ -342,16 +368,7 @@ def _extract_existing_image_boxes(pdf_path: Path) -> Dict[int, Tuple[Tuple[float
 
 
 def _convert_pdf_rect_to_pixels(rect: Tuple[float, float, float, float], page: PageImage) -> Tuple[float, float, float, float]:
-    x0, y0, x1, y1 = rect
-    crop_x0, crop_y0, _, _ = page.cropbox
-    scale_x = page.scale_x or 0.0
-    scale_y = page.scale_y or 0.0
-    width = (x1 - x0) * scale_x
-    height = (y1 - y0) * scale_y
-    x = (x0 - crop_x0) * scale_x
-    # PDF coordinates origin at bottom-left; convert to image top-left space
-    y_top = page.height_px - ((y1 - crop_y0) * scale_y)
-    return (x, y_top, width, height)
+    return pdf_rect_to_pixels(page, rect)
 
 
 def mark_preexisting_raster_regions(

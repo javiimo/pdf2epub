@@ -10,9 +10,9 @@ Preparación de detección
 - [x] Detectar regiones ya rasterizadas en el PDF (imágenes existentes) y marcar cajas coincidentes para omitirlas.
 
 Mapeo de coordenadas
-- [ ] Calcular `scale = Wpx / width_pt` para cada página rasterizada (usar `cropbox`).
-- [ ] Convertir cada bbox detectada de píxeles a puntos aplicando la inversión de rotación (`/Rotate`) y el eje Y invertido.
-- [ ] Expandir ligeramente las cajas (márgenes configurables) en puntos para capturar trazos o ornamentos.
+- [x] Calcular `scale = Wpx / width_pt` para cada página rasterizada (usar `cropbox`).
+- [x] Convertir cada bbox detectada de píxeles a puntos aplicando la inversión de rotación (`/Rotate`) y el eje Y invertido.
+- [x] Expandir ligeramente las cajas (márgenes configurables) en puntos para capturar trazos o ornamentos.
 
 Captura de imagen por región
 - [ ] Implementar renderizado selectivo de una región PDF (`rect_pt`) a bitmap con DPI 300–600, preservando transparencia opcional.
