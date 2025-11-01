@@ -8,6 +8,7 @@ already correspond to raster images inside the PDF.
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -213,6 +214,9 @@ def prepare_page_images(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     prefix = out_dir / "page"
+
+    if run is None:
+        run = subprocess.run
     try:
         rasterize(pdf_path, prefix, dpi=dpi, run=run)
     except RasterizeError as exc:
@@ -423,4 +427,3 @@ def prepare_detection(
         iou_threshold=opts.skip_image_iou,
     )
     return DetectionPreparation(pages=pages, regions=marked)
-
