@@ -45,4 +45,4 @@ Mastering.pdf
 # Conversion artifacts
 *.epub
 
-tmp_selective/
+temp/

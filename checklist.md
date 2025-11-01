@@ -32,10 +32,10 @@ Inserción de imágenes en el PDF
 - [x] Añadir metadatos opcionales (por ejemplo `/Subtype /Form` envolviendo la imagen) para trazabilidad.
 
 Control de calidad y pruebas
-- [ ] Verificar que la selección de texto sobre las zonas procesadas es vacía en un visor PDF.
-- [ ] Ejecutar conversión Calibre → EPUB y comprobar que las regiones aparecen como `<img>` en el HTML resultante.
-- [ ] Añadir pruebas automáticas con PDFs sintéticos (fórmula, tabla con líneas, tabla como imagen) validando redacción e inserción.
-- [ ] Caso borde: detectar y omitir regiones que ya eran imágenes originales.
+- [x] Verificar que la selección de texto sobre las zonas procesadas es vacía en un visor PDF.
+- [x] Ejecutar conversión Calibre → EPUB y comprobar que las regiones aparecen como `<img>` en el HTML resultante.
+- [x] Añadir pruebas automáticas con PDFs sintéticos (fórmula, tabla con líneas, tabla como imagen) validando redacción e inserción.
+- [x] Caso borde: detectar y omitir regiones que ya eran imágenes originales.
 
 Integración en la pipeline
 - [ ] Encapsular el preprocesado en un módulo (`pdf_preprocessor.py`) que reciba el PDF original y produzca un PDF modificado temporal.
