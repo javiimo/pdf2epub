@@ -15,9 +15,9 @@ Mapeo de coordenadas
 - [x] Expandir ligeramente las cajas (márgenes configurables) en puntos para capturar trazos o ornamentos.
 
 Captura de imagen por región
-- [ ] Implementar renderizado selectivo de una región PDF (`rect_pt`) a bitmap con DPI 300–600, preservando transparencia opcional.
-- [ ] Generar XObject de imagen con la resolución calculada (`ceil(w_pt*dpi/72)`, `ceil(h_pt*dpi/72)`).
-- [ ] Guardar imágenes temporalmente con metadatos (página, rect_pt, dpi, etiqueta).
+- [x] Implementar renderizado selectivo de una región PDF (`rect_pt`) a bitmap con DPI 300–600, preservando transparencia opcional.
+- [x] Generar XObject de imagen con la resolución calculada (`ceil(w_pt*dpi/72)`, `ceil(h_pt*dpi/72)`).
+- [x] Guardar imágenes temporalmente con metadatos (página, rect_pt, dpi, etiqueta).
 
 Redacción del contenido original
 - [ ] Implementar utilidades para eliminar texto (`Tj`, `TJ`, `Tf`+`T*`) que intersecte `rect_pt` empleando operadores gráficos.
