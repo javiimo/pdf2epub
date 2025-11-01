@@ -20,10 +20,10 @@ Captura de imagen por región
 - [x] Guardar imágenes temporalmente con metadatos (página, rect_pt, dpi, etiqueta).
 
 Redacción del contenido original
-- [ ] Implementar utilidades para eliminar texto (`Tj`, `TJ`, `Tf`+`T*`) que intersecte `rect_pt` empleando operadores gráficos.
-- [ ] Eliminar gráficos vectoriales (líneas de tablas: `m`, `l`, `re`, `c`, `S`, `f`, etc.) dentro del rectángulo mediante análisis de path.
-- [ ] Para tablas complejas, aplicar anotaciones de redacción (`/Annots` `/Redact`) y ejecutar `apply_redactions` como fallback.
-- [ ] Validar que tras la redacción no queda contenido seleccionable ni vectorial en la región.
+- [x] Implementar utilidades para eliminar texto (`Tj`, `TJ`, `Tf`+`T*`) que intersecte `rect_pt` empleando operadores gráficos.
+- [x] Eliminar gráficos vectoriales (líneas de tablas: `m`, `l`, `re`, `c`, `S`, `f`, etc.) dentro del rectángulo mediante análisis de path.
+- [x] Para tablas complejas, aplicar anotaciones de redacción (`/Annots` `/Redact`) y ejecutar `apply_redactions` como fallback.
+- [x] Validar que tras la redacción no queda contenido seleccionable ni vectorial en la región.
 
 Inserción de imágenes en el PDF
 - [ ] Pintar fondo blanco en `rect_pt` (para evitar transparencia sobre contenido residual).
