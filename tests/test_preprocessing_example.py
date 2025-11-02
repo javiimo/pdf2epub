@@ -18,6 +18,7 @@ from core.runner.tables import fuse_tables_with_layout, infer_tables_on_image
 from core.runner.coordinates import pixels_to_pdf_rect
 from core.runner.region_capture import CaptureOptions, RegionSpec, capture_pdf_regions
 from core.runner.pdf_insertion import ImageInsertOptions, ImageInsertSpec, insert_pdf_images
+from core.runner.redaction import RedactionRegion, redact_and_save_pdf
 
 
 @dataclass(frozen=True)
@@ -184,14 +185,22 @@ def test_full_preprocessing_pipeline_for_example_pdf():
     assert highlight_pdf.exists() and highlight_pdf.stat().st_size > 0
 
     if all_regions:
-        _draw_pdf_regions(
-            pdf_path,
-            redacted_pdf,
-            all_regions,
-            fill=(1.0, 1.0, 1.0),
-            fill_opacity=1.0,
-            stroke=(1.0, 1.0, 1.0),
-            stroke_width=0.0,
+        # Convert _Region objects to RedactionRegion objects
+        redaction_regions = [
+            RedactionRegion(
+                page_index=region.page_index,
+                rect_pt=region.rect_pt,
+                label=region.label
+            )
+            for region in all_regions
+        ]
+        
+        # Use the proper redaction function instead of _draw_pdf_regions
+        redact_and_save_pdf(
+            pdf_path=pdf_path,
+            output_pdf=redacted_pdf,
+            regions=redaction_regions,
+            fill_color=(1.0, 1.0, 1.0),  # White fill for redaction
         )
     else:
         shutil.copy2(pdf_path, redacted_pdf)

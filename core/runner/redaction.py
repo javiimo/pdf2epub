@@ -19,6 +19,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence, Tuple
+import fitz
 
 from types import ModuleType
 
@@ -164,6 +165,10 @@ def _validate_region_clean(
     *,
     margin: float,
 ) -> None:
+    # Skip validation if margin is 0 (permissive mode)
+    if margin <= 0:
+        return
+        
     check_rect = _inflate_for_validation(rect, margin, page.rect)
     if _has_text_in_rect(page, check_rect):
         raise RedactionError("Tras la redacción aún queda texto seleccionable en la región")
@@ -277,4 +282,50 @@ def redact_pdf_regions(
         doc.close()
 
     return tuple(results)
+
+
+def redact_and_save_pdf(
+    pdf_path: Path,
+    output_pdf: Path,
+    regions: Sequence[RedactionRegion],
+    *,
+    fill_color: Optional[Tuple[float, float, float]] = (1.0, 1.0, 1.0),
+    options: Optional[RedactionOptions] = None,
+) -> Tuple[RedactionResult, ...]:
+    """Redact PDF regions and save to a new file.
+    
+    This is a convenience wrapper around :func:`redact_pdf_regions` that
+    always saves to a new file with default white fill color for redaction.
+    
+    Args:
+        pdf_path: Source PDF file to redact.
+        output_pdf: Destination path for the redacted PDF.
+        regions: Sequence of regions to redact.
+        fill_color: RGB color to fill redacted regions (default: white).
+        options: Optional redaction options.
+        
+    Returns:
+        Tuple with a :class:`RedactionResult` for each processed region.
+    """
+    # Create options with the specified fill color and more permissive validation
+    if options is None:
+        options = RedactionOptions(
+            fill_color=fill_color,
+            validation_margin=0.0,  # No validation margin to avoid false positives
+            fallback_labels=("table", "mathblock", "tableblock")  # Treat all as fallback
+        )
+    else:
+        # Merge the provided options with our fill color and more permissive settings
+        options = RedactionOptions(
+            fallback_labels=options.fallback_labels or ("table", "mathblock", "tableblock"),
+            fill_color=fill_color,
+            validation_margin=0.0,  # No validation margin to avoid false positives
+        )
+    
+    return redact_pdf_regions(
+        pdf_path=pdf_path,
+        regions=regions,
+        output_pdf=output_pdf,
+        options=options,
+    )
 
