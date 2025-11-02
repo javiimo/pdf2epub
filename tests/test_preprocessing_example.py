@@ -110,7 +110,12 @@ def test_full_preprocessing_pipeline_for_example_pdf():
         fused = fuse_tables_with_layout(layout, tables, iou_threshold=0.3)
         post = postprocess_math_and_tables(
             fused,
-            options=PostprocessOptions(dpi=page_image.dpi, min_area_px=150, margin_pts=5.0),
+            options=PostprocessOptions(
+                dpi=page_image.dpi,
+                min_area_px=0,
+                margin_pts=1.0,
+                suppress_inline_math=False  # Keep inline math equations
+            ),
         )
         boxes = [b for b in post.boxes if b.label in {"mathblock", "tableblock"}]
 
