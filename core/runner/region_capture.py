@@ -306,23 +306,68 @@ def capture_pdf_regions(
         for idx, spec in enumerate(regions, start=1):
             rect = _validate_rect(spec.rect_pt)
             expected_w, expected_h = _compute_pixel_size(rect, dpi_value)
-            pix = _render_region_pixmap(doc, int(spec.page_index), rect, dpi=dpi_value, transparent=transparent)
+            pix = _render_region_pixmap(
+                doc,
+                int(spec.page_index),
+                rect,
+                dpi=dpi_value,
+                transparent=transparent,
+            )
 
             width_px = int(pix.width)
             height_px = int(pix.height)
             target_width = max(1, int(expected_w))
             target_height = max(1, int(expected_h))
-            if width_px > target_width or height_px > target_height:
-                clip_width = min(width_px, target_width)
-                clip_height = min(height_px, target_height)
-                total_components = getattr(pix, "n", 0)
-                stride = getattr(pix, "stride", width_px * total_components)
+            if width_px != target_width or height_px != target_height:
+                total_components = int(getattr(pix, "n", 0))
+                if total_components <= 0:
+                    raise RegionCaptureError("Pixmap sin componentes de color")
+
+                stride_raw = getattr(pix, "stride", None)
+                try:
+                    stride = int(stride_raw) if stride_raw is not None else width_px * total_components
+                except (TypeError, ValueError):  # pragma: no cover - defensive
+                    stride = width_px * total_components
+                if stride <= 0:
+                    stride = width_px * total_components
+
+                matrix = fitz.Matrix(dpi_value / 72.0, dpi_value / 72.0)
+                device_rect = fitz.Rect(*rect) * matrix
+                irect_obj = pix.irect
+                if not hasattr(irect_obj, "x0"):
+                    irect_obj = fitz.IRect(irect_obj)
+
+                total_trim_x = max(0, width_px - target_width)
+                total_trim_y = max(0, height_px - target_height)
+
+                left_extra = max(0.0, float(device_rect.x0) - float(irect_obj.x0))
+                right_extra = max(0.0, float(irect_obj.x1) - float(device_rect.x1))
+                top_extra = max(0.0, float(device_rect.y0) - float(irect_obj.y0))
+                bottom_extra = max(0.0, float(irect_obj.y1) - float(device_rect.y1))
+
+                left_trim = min(int(round(left_extra)), total_trim_x)
+                right_trim = max(0, total_trim_x - left_trim)
+                top_trim = min(int(round(top_extra)), total_trim_y)
+                bottom_trim = max(0, total_trim_y - top_trim)
+
+                start_col = min(max(left_trim, 0), max(0, width_px - target_width))
+                end_col = width_px - min(max(right_trim, 0), max(0, width_px - target_width - start_col))
+                start_row = min(max(top_trim, 0), max(0, height_px - target_height))
+                end_row = height_px - min(max(bottom_trim, 0), max(0, height_px - target_height - start_row))
+
+                clip_width = max(1, end_col - start_col)
+                clip_height = max(1, end_row - start_row)
                 row_bytes = clip_width * total_components
                 cropped = bytearray(clip_height * row_bytes)
                 samples = pix.samples
                 for row in range(clip_height):
-                    src_start = row * stride
-                    cropped[row * row_bytes : (row + 1) * row_bytes] = samples[src_start : src_start + row_bytes]
+                    src_row = start_row + row
+                    src_start = src_row * stride + start_col * total_components
+                    src_end = src_start + row_bytes
+                    if src_end > len(samples):  # pragma: no cover - defensive guard
+                        raise RegionCaptureError("Datos incompletos al recortar la captura")
+                    cropped[row * row_bytes : (row + 1) * row_bytes] = samples[src_start:src_end]
+
                 pix = fitz.Pixmap(pix.colorspace, clip_width, clip_height, bytes(cropped), pix.alpha)
                 width_px = int(pix.width)
                 height_px = int(pix.height)
