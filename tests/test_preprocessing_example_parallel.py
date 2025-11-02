@@ -5,6 +5,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence, Tuple
+import concurrent.futures
+import time
 
 import pytest
 
@@ -62,12 +64,110 @@ def _draw_pdf_regions(
     return destination_pdf
 
 
-def test_full_preprocessing_pipeline_for_example_pdf():
+def _process_page(page_image, paddleocr_path, overlays_dir, crops_dir, metadata_dir, pdf_path, temp_root):
+    """Process a single page and return regions and captured images."""
+    page_index = page_image.page_index
+    page_prefix = overlays_dir / f"page-{page_index:02d}"
+    page_prefix.mkdir(parents=True, exist_ok=True)
+
+    print(f"Processing page {page_index} with GPU")
+    start_time = time.time()
+    
+    layout = infer_layout_on_image(
+        page_image.image_path,
+        device="gpu",
+        paddleocr_path=str(paddleocr_path),
+    )
+    
+    tables = infer_tables_on_image(
+        page_image.image_path,
+        device="gpu",
+        paddleocr_path=str(paddleocr_path),
+    )
+    
+    fused = fuse_tables_with_layout(layout, tables, iou_threshold=0.3)
+    post = postprocess_math_and_tables(
+        fused,
+        options=PostprocessOptions(
+            dpi=page_image.dpi,
+            min_area_px=0,
+            margin_pts=1.0,
+            suppress_inline_math=False  # Keep inline math equations
+        ),
+    )
+    boxes = [b for b in post.boxes if b.label in {"mathblock", "tableblock"}]
+
+    overlay_path = page_prefix / "overlay.png"
+    draw_overlay(page_image.image_path, boxes, overlay_path)
+    assert overlay_path.exists() and overlay_path.stat().st_size > 0
+
+    boxes_payload = [
+        {
+            "label": box.label,
+            "score": box.score,
+            "x": box.x,
+            "y": box.y,
+            "width": box.width,
+            "height": box.height,
+        }
+        for box in boxes
+    ]
+    (page_prefix / "boxes.json").write_text(json.dumps(boxes_payload, indent=2), encoding="utf-8")
+
+    pdf_rects = [
+        pixels_to_pdf_rect(page_image, (box.x, box.y, box.width, box.height))
+        for box in boxes
+    ]
+    (page_prefix / "boxes-pdf.json").write_text(
+        json.dumps([
+            {
+                "label": box.label,
+                "rect_pt": list(rect),
+            }
+            for box, rect in zip(boxes, pdf_rects)
+        ], indent=2),
+        encoding="utf-8",
+    )
+
+    page_regions = [_Region(page_index=page_index, rect_pt=rect, label=box.label) for box, rect in zip(boxes, pdf_rects)]
+    
+    captured_images = []
+    if page_regions:
+        captures_dir = _ensure_dir(crops_dir / f"page-{page_index:02d}")
+        effective_dpi = page_image.scale * 72.0
+        captures = capture_pdf_regions(
+            pdf_path,
+            [RegionSpec(page_index=region.page_index, rect_pt=region.rect_pt, label=region.label) for region in page_regions],
+            output_dir=captures_dir,
+            options=CaptureOptions(dpi=effective_dpi, image_prefix=f"page{page_index:02d}"),
+        )
+        for capture in captures:
+            spec = ImageInsertSpec(capture=capture)
+            captured_images.append(spec)
+            metadata_path = metadata_dir / f"capture-p{capture.page_index:02d}-{capture.image_path.stem}.json"
+            metadata_path.write_text(
+                json.dumps({
+                    "page_index": capture.page_index,
+                    "rect_pt": list(capture.rect_pt),
+                    "dpi": capture.dpi,
+                    "label": capture.label,
+                    "image": str(capture.image_path.relative_to(temp_root)),
+                }, indent=2),
+                encoding="utf-8",
+            )
+    
+    elapsed = time.time() - start_time
+    print(f"Page {page_index} processed in {elapsed:.2f}s")
+    
+    return page_regions, captured_images
+
+
+def test_full_preprocessing_pipeline_for_example_pdf_parallel():
     repo_root = Path(__file__).resolve().parents[1]
     pdf_path = repo_root / "example.pdf"
     assert pdf_path.exists(), "example.pdf no encontrado en la raíz del repositorio"
 
-    temp_root = repo_root / "temp" / "example_preprocessing"
+    temp_root = repo_root / "temp" / "example_preprocessing_parallel"
     if temp_root.exists():
         shutil.rmtree(temp_root)
     temp_root.mkdir(parents=True, exist_ok=True)
@@ -92,91 +192,33 @@ def test_full_preprocessing_pipeline_for_example_pdf():
     all_regions: list[_Region] = []
     captured_images: list[ImageInsertSpec] = []
 
-    for page_image in page_images:
-        page_index = page_image.page_index
-        page_prefix = overlays_dir / f"page-{page_index:02d}"
-        page_prefix.mkdir(parents=True, exist_ok=True)
-
-        layout = infer_layout_on_image(
-            page_image.image_path,
-            device="gpu",
-            paddleocr_path=str(paddleocr_path),
-        )
-        tables = infer_tables_on_image(
-            page_image.image_path,
-            device="gpu",
-            paddleocr_path=str(paddleocr_path),
-        )
-        fused = fuse_tables_with_layout(layout, tables, iou_threshold=0.3)
-        post = postprocess_math_and_tables(
-            fused,
-            options=PostprocessOptions(
-                dpi=page_image.dpi,
-                min_area_px=0,
-                margin_pts=1.0,
-                suppress_inline_math=False  # Keep inline math equations
-            ),
-        )
-        boxes = [b for b in post.boxes if b.label in {"mathblock", "tableblock"}]
-
-        overlay_path = page_prefix / "overlay.png"
-        draw_overlay(page_image.image_path, boxes, overlay_path)
-        assert overlay_path.exists() and overlay_path.stat().st_size > 0
-
-        boxes_payload = [
-            {
-                "label": box.label,
-                "score": box.score,
-                "x": box.x,
-                "y": box.y,
-                "width": box.width,
-                "height": box.height,
-            }
-            for box in boxes
-        ]
-        (page_prefix / "boxes.json").write_text(json.dumps(boxes_payload, indent=2), encoding="utf-8")
-
-        pdf_rects = [
-            pixels_to_pdf_rect(page_image, (box.x, box.y, box.width, box.height))
-            for box in boxes
-        ]
-        (page_prefix / "boxes-pdf.json").write_text(
-            json.dumps([
-                {
-                    "label": box.label,
-                    "rect_pt": list(rect),
-                }
-                for box, rect in zip(boxes, pdf_rects)
-            ], indent=2),
-            encoding="utf-8",
-        )
-
-        page_regions = [_Region(page_index=page_index, rect_pt=rect, label=box.label) for box, rect in zip(boxes, pdf_rects)]
-        all_regions.extend(page_regions)
-
-        if page_regions:
-            captures_dir = _ensure_dir(crops_dir / f"page-{page_index:02d}")
-            effective_dpi = page_image.scale * 72.0
-            captures = capture_pdf_regions(
-                pdf_path,
-                [RegionSpec(page_index=region.page_index, rect_pt=region.rect_pt, label=region.label) for region in page_regions],
-                output_dir=captures_dir,
-                options=CaptureOptions(dpi=effective_dpi, image_prefix=f"page{page_index:02d}"),
+    # Process pages in parallel
+    print(f"Processing {len(page_images)} pages in parallel with GPU")
+    start_time = time.time()
+    
+    # Use ThreadPoolExecutor since PaddleOCR might release GIL during GPU operations
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(page_images), 2)) as executor:
+        futures = [
+            executor.submit(
+                _process_page, 
+                page_image, 
+                paddleocr_path, 
+                overlays_dir, 
+                crops_dir, 
+                metadata_dir, 
+                pdf_path, 
+                temp_root
             )
-            for capture in captures:
-                spec = ImageInsertSpec(capture=capture)
-                captured_images.append(spec)
-                metadata_path = metadata_dir / f"capture-p{capture.page_index:02d}-{capture.image_path.stem}.json"
-                metadata_path.write_text(
-                    json.dumps({
-                        "page_index": capture.page_index,
-                        "rect_pt": list(capture.rect_pt),
-                        "dpi": capture.dpi,
-                        "label": capture.label,
-                        "image": str(capture.image_path.relative_to(temp_root)),
-                    }, indent=2),
-                    encoding="utf-8",
-                )
+            for page_image in page_images
+        ]
+        
+        for future in concurrent.futures.as_completed(futures):
+            page_regions, page_captured_images = future.result()
+            all_regions.extend(page_regions)
+            captured_images.extend(page_captured_images)
+    
+    elapsed = time.time() - start_time
+    print(f"All pages processed in parallel in {elapsed:.2f}s")
 
     _draw_pdf_regions(
         pdf_path,
@@ -236,4 +278,3 @@ def test_full_preprocessing_pipeline_for_example_pdf():
     for capture_spec in captured_images:
         image_path = capture_spec.capture.image_path
         assert image_path.exists() and image_path.stat().st_size > 0
-
