@@ -113,6 +113,14 @@ def _rotate_point(
         return y, width_pts - x
     raise ValueError(f"Rotación no soportada: {rotation}")
 
+def _flip_rect_y_in_cropbox(
+    rect: Tuple[float, float, float, float],
+    cropbox: Tuple[float, float, float, float],
+) -> Tuple[float, float, float, float]:
+    x0, y0, x1, y1 = rect
+    _, cy0, _, cy1 = cropbox
+    s = cy0 + cy1  # y_bottom + y_top de la cropbox
+    return (x0, s - y1, x1, s - y0)
 
 def pixels_to_pdf_rect(
     page: "PageImage",
@@ -168,8 +176,11 @@ def pixels_to_pdf_rect(
         x1 = x0
     if y1 < y0:
         y1 = y0
-    return (x0, y0, x1, y1)
-
+    
+    rect_pt = (x0, y0, x1, y1)
+    # flip vertical: usar altura visible (cropbox), no el media box
+    rect_pt = _flip_rect_y_in_cropbox(rect_pt, page.cropbox)
+    return rect_pt
 
 def region_pixels_to_pdf_rect(
     page: "PageImage",
