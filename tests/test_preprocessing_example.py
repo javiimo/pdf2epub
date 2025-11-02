@@ -150,11 +150,12 @@ def test_full_preprocessing_pipeline_for_example_pdf():
 
         if page_regions:
             captures_dir = _ensure_dir(crops_dir / f"page-{page_index:02d}")
+            effective_dpi = page_image.scale * 72.0
             captures = capture_pdf_regions(
                 pdf_path,
                 [RegionSpec(page_index=region.page_index, rect_pt=region.rect_pt, label=region.label) for region in page_regions],
                 output_dir=captures_dir,
-                options=CaptureOptions(dpi=360, image_prefix=f"page{page_index:02d}"),
+                options=CaptureOptions(dpi=effective_dpi, image_prefix=f"page{page_index:02d}"),
             )
             for capture in captures:
                 spec = ImageInsertSpec(capture=capture)

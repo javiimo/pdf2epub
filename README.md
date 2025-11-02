@@ -120,3 +120,7 @@ La suite incluye pruebas de integración con Tkinter; si ves avisos de hilos de 
 - **Tk no se inicia**: en entornos sin servidor gráfico puedes necesitar un backend virtual (p.ej. `xvfb-run python run.py`).
 
 ¡Listo! Lanza `run.py`, selecciona tu PDF y ajusta las opciones de forma guiada para obtener un EPUB limpio.*** End Patch
+
+
+Test the preprocessing pipeline with:
+.venv/bin/pytest tests/test_preprocessing_example.py

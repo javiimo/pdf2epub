@@ -265,7 +265,13 @@ def fuse_tables_with_layout(
         best_idx = -1
         for i, l in enumerate(layout_tables):
             l_rect = (l.x, l.y, l.width, l.height)
-            overlap = max(_iou(t_rect, l_rect), _overlap_with_smaller(t_rect, l_rect))
+            iou = _iou(t_rect, l_rect)
+            overlap_smaller = 0.0
+            t_area = t.width * t.height
+            l_area = l.width * l.height
+            if t_area > 0 and l_area > 0 and t_area <= l_area * 1.05:
+                overlap_smaller = _overlap_with_smaller(t_rect, l_rect)
+            overlap = max(iou, overlap_smaller)
             if overlap > best_score:
                 best_score = overlap
                 best_idx = i

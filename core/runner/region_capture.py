@@ -109,7 +109,7 @@ class CapturedRegionImage:
 class CaptureOptions:
     """Configuration knobs for region capture."""
 
-    dpi: int = 360
+    dpi: float = 360.0
     transparent: bool = False
     image_prefix: str = "region"
 
@@ -119,10 +119,11 @@ def _require_fitz() -> None:
         raise RegionCaptureError("PyMuPDF (fitz) no disponible para rasterizar regiones del PDF")
 
 
-def _validate_dpi(dpi: int) -> int:
-    if dpi < 300 or dpi > 600:
+def _validate_dpi(dpi: float) -> float:
+    value = float(dpi)
+    if value < 300.0 or value > 600.0:
         raise RegionCaptureError("El DPI para captura selectiva debe estar entre 300 y 600")
-    return int(dpi)
+    return value
 
 
 def _validate_rect(rect: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
@@ -134,12 +135,12 @@ def _validate_rect(rect: Tuple[float, float, float, float]) -> Tuple[float, floa
     return (float(x0), float(y0), float(x1), float(y1))
 
 
-def _compute_pixel_size(rect: Tuple[float, float, float, float], dpi: int) -> Tuple[int, int]:
+def _compute_pixel_size(rect: Tuple[float, float, float, float], dpi: float) -> Tuple[int, int]:
     x0, y0, x1, y1 = rect
     width_pt = max(0.0, x1 - x0)
     height_pt = max(0.0, y1 - y0)
-    width_px = max(1, int(math.ceil(width_pt * dpi / 72.0)))
-    height_px = max(1, int(math.ceil(height_pt * dpi / 72.0)))
+    width_px = max(1, int(round(width_pt * dpi / 72.0)))
+    height_px = max(1, int(round(height_pt * dpi / 72.0)))
     return width_px, height_px
 
 
@@ -260,7 +261,7 @@ def _render_region_pixmap(
     page_index: int,
     rect_pt: Tuple[float, float, float, float],
     *,
-    dpi: int,
+    dpi: float,
     transparent: bool,
 ) -> "fitz.Pixmap":
     page_count = int(getattr(doc, "page_count", 0))
@@ -292,7 +293,7 @@ def capture_pdf_regions(
         raise RegionCaptureError(f"El PDF de entrada no existe: {pdf_path}")
 
     opts = options or CaptureOptions()
-    dpi = _validate_dpi(int(opts.dpi))
+    dpi_value = _validate_dpi(float(opts.dpi))
     transparent = bool(opts.transparent)
     prefix = str(opts.image_prefix or "region").strip() or "region"
 
@@ -304,11 +305,27 @@ def capture_pdf_regions(
     with fitz.open(pdf_path) as doc:  # type: ignore[arg-type]
         for idx, spec in enumerate(regions, start=1):
             rect = _validate_rect(spec.rect_pt)
-            expected_w, expected_h = _compute_pixel_size(rect, dpi)
-            pix = _render_region_pixmap(doc, int(spec.page_index), rect, dpi=dpi, transparent=transparent)
+            expected_w, expected_h = _compute_pixel_size(rect, dpi_value)
+            pix = _render_region_pixmap(doc, int(spec.page_index), rect, dpi=dpi_value, transparent=transparent)
 
             width_px = int(pix.width)
             height_px = int(pix.height)
+            target_width = max(1, int(expected_w))
+            target_height = max(1, int(expected_h))
+            if width_px > target_width or height_px > target_height:
+                clip_width = min(width_px, target_width)
+                clip_height = min(height_px, target_height)
+                total_components = getattr(pix, "n", 0)
+                stride = getattr(pix, "stride", width_px * total_components)
+                row_bytes = clip_width * total_components
+                cropped = bytearray(clip_height * row_bytes)
+                samples = pix.samples
+                for row in range(clip_height):
+                    src_start = row * stride
+                    cropped[row * row_bytes : (row + 1) * row_bytes] = samples[src_start : src_start + row_bytes]
+                pix = fitz.Pixmap(pix.colorspace, clip_width, clip_height, bytes(cropped), pix.alpha)
+                width_px = int(pix.width)
+                height_px = int(pix.height)
             if width_px <= 0 or height_px <= 0:
                 raise RegionCaptureError("La captura devolvió una imagen sin dimensiones válidas")
 
@@ -317,7 +334,8 @@ def capture_pdf_regions(
             metadata = {
                 "page_index": int(spec.page_index),
                 "rect_pt": list(rect),
-                "dpi": dpi,
+                "dpi": int(round(dpi_value)),
+                "dpi_exact": dpi_value,
                 "label": spec.label,
                 "width_px": width_px,
                 "height_px": height_px,
@@ -341,7 +359,7 @@ def capture_pdf_regions(
                     metadata_path=metadata_path,
                     page_index=int(spec.page_index),
                     rect_pt=rect,
-                    dpi=dpi,
+                    dpi=int(round(dpi_value)),
                     label=spec.label,
                     width_px=width_px,
                     height_px=height_px,

@@ -126,8 +126,30 @@ def pixels_to_pdf_rect(
     scale_x, scale_y = page_scale(page)
     corners_rot = _pixels_to_rotated_points(rect_px, rot_height_pts, scale_x, scale_y)
 
+    left_rot = corners_rot[0][0]
+    right_rot = corners_rot[1][0]
+    top_rot = corners_rot[0][1]
+    bottom_rot = corners_rot[2][1]
+
+    target_dpi = float(getattr(page, "dpi", 0) or 0.0)
+    if target_dpi > 0.0:
+        width_px = float(rect_px[2])
+        height_px = float(rect_px[3])
+        pixel_epsilon = 1e-6
+        width_pts_target = max(0.0, (width_px - pixel_epsilon) * 72.0 / target_dpi)
+        height_pts_target = max(0.0, (height_px - pixel_epsilon) * 72.0 / target_dpi)
+        right_rot = left_rot + width_pts_target
+        bottom_rot = top_rot - height_pts_target
+
+    adjusted_rot = (
+        (left_rot, top_rot),
+        (right_rot, top_rot),
+        (left_rot, bottom_rot),
+        (right_rot, bottom_rot),
+    )
+
     # Convert the rotated coordinates back into the original PDF frame.
-    rel_points = [_inverse_rotate_point(pt, width_pts, height_pts, rotation) for pt in corners_rot]
+    rel_points = [_inverse_rotate_point(pt, width_pts, height_pts, rotation) for pt in adjusted_rot]
 
     xs = [pt[0] for pt in rel_points]
     ys = [pt[1] for pt in rel_points]
