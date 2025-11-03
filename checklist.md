@@ -54,4 +54,5 @@ Solución de errores de conversión
   - [x] Implementar múltiples niveles de fallback (desactivar detección, usar regex vacíos, etc.)
   - [x] Añadir fallback final usando pdftohtml + ebook-convert en dos pasos
   - [x] Modificar la lógica para considerar exitoso si el archivo EPUB se crea incluso con advertencias
+  - [x] Corregir error de sintaxis en layout.py que impedía la detección de layout
 

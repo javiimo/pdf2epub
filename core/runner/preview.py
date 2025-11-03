@@ -30,7 +30,7 @@ def _ensure_catalog(catalog: Optional[Catalog]) -> Catalog:
 
 
 def _is_header_footer_detection_bug(stderr: str) -> bool:
-    """Heuristic to detect the calibre PDF reflow header/footer bug.
+    """Heuristic to detect calibre PDF reflow header/footer bug.
 
     We look for the signature of an IndexError happening inside
     ``find_header_footer`` from ``calibre/ebooks/pdf/reflow.py``.
@@ -56,7 +56,6 @@ class PreviewResult:
     skipped_options: Sequence[str] = ()
     preprocess: Optional[PreprocessResult] = None
 
-
 class PreviewError(RuntimeError):
     """Raised when ebook-convert preview fails."""
 
@@ -74,6 +73,8 @@ class PreviewError(RuntimeError):
         self.stdout = stdout
         self.stderr = stderr
         self.returncode = returncode
+
+
 def run_preview(
     config: TabConfiguration,
     *,
@@ -83,7 +84,7 @@ def run_preview(
     workspace_factory: Callable[[], TemporaryWorkspace] = TemporaryWorkspace,
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> PreviewResult:
-    """Execute ebook-convert to generate an OEB preview for the given config."""
+    """Execute ebook-convert to generate an OEB preview for given config."""
     if not config.input_pdf:
         raise PreviewError(
             "Selecciona primero un PDF de entrada para previsualizar.",
@@ -100,7 +101,7 @@ def run_preview(
         presets = get_presets()
         kobo = next((p for p in presets if p.id == "base-kobo"), None)
         if kobo is not None:
-            # Work on a shallow copy of the config so we don't mutate caller state
+            # Work on a shallow copy of config so we don't mutate caller state
             cfg_options = dict(config.options)
             apply_preset(cfg_options, kobo)
             config = replace(config, options=cfg_options)
@@ -176,7 +177,7 @@ def run_preview(
     stderr = completed.stderr or ""
 
     # Fallback: calibre PDF reflow header/footer autodetection can crash with
-    # IndexError on some PDFs/ranges. Retry disabling the auto-skip by forcing
+    # IndexError on some PDFs/ranges. Retry disabling auto-skip by forcing
     # header/footer skip to 0 when we detect that signature.
     if completed.returncode != 0 and _is_header_footer_detection_bug(stderr):
         # Prepare a modified config overriding only the two relevant options.
@@ -271,31 +272,362 @@ def run_preview(
                         if x not in skipped:
                             skipped.append(x)
                 else:
-                    # Include all runs' info in the error to aid debugging.
-                    workspace.cleanup()
-                    combined_stderr = (
-                        (stderr or "").rstrip()
-                        + "\n\n[Fallback intentado: pdf-header-skip=0, pdf-footer-skip=0]\n"
-                        + (fb_completed.stderr or "")
-                        + "\n\n[Fallback 2 intentado: regex de cabecera/pie vacíos]\n"
-                        + (rx_completed.stderr or "")
-                    )
-                    combined_stdout = (
-                        (stdout or "").rstrip()
-                        + "\n\n[Fallback intentado]\n"
-                        + (fb_completed.stdout or "")
-                        + "\n\n[Fallback 2 intentado]\n"
-                        + (rx_completed.stdout or "")
-                    )
-                    raise PreviewError(
-                        f"ebook-convert falló (y los fallbacks también) con código {rx_completed.returncode}.",
-                        command=regex_command,
-                        stdout=combined_stdout,
-                        stderr=combined_stderr,
-                        returncode=rx_completed.returncode,
-                    )
+                    # Fallback level 3: disable all header/footer detection and use no-flow mode
+                    if _is_header_footer_detection_bug(rx_completed.stderr or ""):
+                        noflow_options = dict(regex_config.options)
+                        noflow_options.setdefault("pdf-header-skip", "0")
+                        noflow_options.setdefault("pdf-footer-skip", "0")
+                        noflow_options.setdefault("pdf-header-regex", "(?!)")
+                        noflow_options.setdefault("pdf-footer-regex", "(?!)")
+                        # Try to disable the reflow engine completely
+                        noflow_options["no-flow"] = True
+                        noflow_config = replace(regex_config, options=noflow_options)
+
+                        noflow_skipped: List[str] = []
+                        noflow_command = build_convert_command(
+                            ebook_convert_path,
+                            subset_pdf,
+                            oeb_output,
+                            noflow_config,
+                            active_catalog,
+                            supported_flags=supported_flags,
+                            skipped=noflow_skipped,
+                        )
+
+                        try:
+                            noflow_completed = run(
+                                noflow_command,
+                                capture_output=True,
+                                text=True,
+                                check=False,
+                            )
+                        except OSError:
+                            workspace.cleanup()
+                            raise PreviewError(
+                                "ebook-convert falló y todos los reintentos con fallback también fallaron.",
+                                command=noflow_command,
+                                stdout=stdout,
+                                stderr=stderr,
+                                returncode=completed.returncode,
+                            )
+
+                        if noflow_completed.returncode == 0:
+                            command = noflow_command
+                            stdout = noflow_completed.stdout or ""
+                            stderr = noflow_completed.stderr or ""
+                            for x in fb_skipped:
+                                if x not in skipped:
+                                    skipped.append(x)
+                            for x in rx_skipped:
+                                if x not in skipped:
+                                    skipped.append(x)
+                            for x in noflow_skipped:
+                                if x not in skipped:
+                                    skipped.append(x)
+                        else:
+                            # Fallback level 4: use the pdftohtml engine instead of calibre
+                            if _is_header_footer_detection_bug(noflow_completed.stderr or ""):
+                                pdftohtml_options = dict(noflow_options)
+                                # Use the pdftohtml engine which doesn't have the header/footer detection bug
+                                pdftohtml_options["pdf-engine"] = "pdftohtml"
+                                pdftohtml_config = replace(noflow_config, options=pdftohtml_options)
+
+                                pdftohtml_skipped: List[str] = []
+                                pdftohtml_command = build_convert_command(
+                                    ebook_convert_path,
+                                    subset_pdf,
+                                    oeb_output,
+                                    pdftohtml_config,
+                                    active_catalog,
+                                    supported_flags=supported_flags,
+                                    skipped=pdftohtml_skipped,
+                                )
+
+                                try:
+                                    pdftohtml_completed = run(
+                                        pdftohtml_command,
+                                        capture_output=True,
+                                        text=True,
+                                        check=False,
+                                    )
+                                except OSError:
+                                    workspace.cleanup()
+                                    raise PreviewError(
+                                        "ebook-convert falló y todos los reintentos con fallback también fallaron.",
+                                        command=pdftohtml_command,
+                                        stdout=stdout,
+                                        stderr=stderr,
+                                        returncode=completed.returncode,
+                                    )
+
+                                if pdftohtml_completed.returncode == 0:
+                                    command = pdftohtml_command
+                                    stdout = pdftohtml_completed.stdout or ""
+                                    stderr = pdftohtml_completed.stderr or ""
+                                    for x in fb_skipped:
+                                        if x not in skipped:
+                                            skipped.append(x)
+                                    for x in rx_skipped:
+                                        if x not in skipped:
+                                            skipped.append(x)
+                                    for x in noflow_skipped:
+                                        if x not in skipped:
+                                            skipped.append(x)
+                                    for x in pdftohtml_skipped:
+                                        if x not in skipped:
+                                            skipped.append(x)
+                                else:
+                                    # Fallback level 5: use pdftohtml engine with no-chapters
+                                    if _is_header_footer_detection_bug(pdftohtml_completed.stderr or ""):
+                                        nochapters_options = dict(pdftohtml_options)
+                                        nochapters_options["pdf-engine"] = "pdftohtml"
+                                        nochapters_options["no-chapters-in-toc"] = True
+                                        nochapters_options["chapter"] = "/"  # Disable chapter detection completely
+                                        nochapters_config = replace(pdftohtml_config, options=nochapters_options)
+
+                                        nochapters_skipped: List[str] = []
+                                        nochapters_command = build_convert_command(
+                                            ebook_convert_path,
+                                            subset_pdf,
+                                            oeb_output,
+                                            nochapters_config,
+                                            active_catalog,
+                                            supported_flags=supported_flags,
+                                            skipped=nochapters_skipped,
+                                        )
+
+                                        try:
+                                            nochapters_completed = run(
+                                                nochapters_command,
+                                                capture_output=True,
+                                                text=True,
+                                                check=False,
+                                            )
+                                        except OSError:
+                                            workspace.cleanup()
+                                            raise PreviewError(
+                                                "ebook-convert falló y todos los reintentos con fallback también fallaron.",
+                                                command=nochapters_command,
+                                                stdout=stdout,
+                                                stderr=stderr,
+                                                returncode=completed.returncode,
+                                            )
+
+                                        if nochapters_completed.returncode == 0:
+                                            command = nochapters_command
+                                            stdout = nochapters_completed.stdout or ""
+                                            stderr = nochapters_completed.stderr or ""
+                                            for x in fb_skipped:
+                                                if x not in skipped:
+                                                    skipped.append(x)
+                                            for x in rx_skipped:
+                                                if x not in skipped:
+                                                    skipped.append(x)
+                                            for x in noflow_skipped:
+                                                if x not in skipped:
+                                                    skipped.append(x)
+                                            for x in pdftohtml_skipped:
+                                                if x not in skipped:
+                                                    skipped.append(x)
+                                            for x in nochapters_skipped:
+                                                if x not in skipped:
+                                                    skipped.append(x)
+                                        else:
+                                            # Fallback level 6: try with minimal options and no structure detection
+                                            if _is_header_footer_detection_bug(nochapters_completed.stderr or ""):
+                                                minimal_options = {}
+                                                # Use only the most basic options that are absolutely necessary
+                                                minimal_options["chapter"] = "/"  # Disable chapter detection
+                                                minimal_options["no-chapters-in-toc"] = True
+                                                minimal_options["pdf-engine"] = "pdftohtml"
+                                                minimal_options["disable-heuristics"] = True  # Disable all heuristic processing
+                                                minimal_options["disable-all-heuristics"] = True  # Extra disable
+                                                
+                                                # Copy only essential formatting options from original config
+                                                essential_opts = ["base_font_size", "font_size_mapping", "change_justification",
+                                                                "output_profile", "minimum_line_height"]
+                                                for opt in essential_opts:
+                                                    if opt in config.options:
+                                                        minimal_options[opt] = config.options[opt]
+                                                
+                                                minimal_config = replace(config, options=minimal_options)
+
+                                                minimal_skipped: List[str] = []
+                                                minimal_command = build_convert_command(
+                                                    ebook_convert_path,
+                                                    subset_pdf,
+                                                    oeb_output,
+                                                    minimal_config,
+                                                    active_catalog,
+                                                    supported_flags=supported_flags,
+                                                    skipped=minimal_skipped,
+                                                )
+
+                                                try:
+                                                    minimal_completed = run(
+                                                        minimal_command,
+                                                        capture_output=True,
+                                                        text=True,
+                                                        check=False,
+                                                    )
+                                                except OSError:
+                                                    workspace.cleanup()
+                                                    raise PreviewError(
+                                                        "ebook-convert falló y todos los reintentos con fallback también fallaron.",
+                                                        command=minimal_command,
+                                                        stdout=stdout,
+                                                        stderr=stderr,
+                                                        returncode=completed.returncode,
+                                                    )
+
+                                                if minimal_completed.returncode == 0:
+                                                    command = minimal_command
+                                                    stdout = minimal_completed.stdout or ""
+                                                    stderr = minimal_completed.stderr or ""
+                                                    for x in fb_skipped:
+                                                        if x not in skipped:
+                                                            skipped.append(x)
+                                                    for x in rx_skipped:
+                                                        if x not in skipped:
+                                                            skipped.append(x)
+                                                    for x in noflow_skipped:
+                                                        if x not in skipped:
+                                                            skipped.append(x)
+                                                    for x in pdftohtml_skipped:
+                                                        if x not in skipped:
+                                                            skipped.append(x)
+                                                    for x in nochapters_skipped:
+                                                        if x not in skipped:
+                                                            skipped.append(x)
+                                                    for x in minimal_skipped:
+                                                        if x not in skipped:
+                                                            skipped.append(x)
+                                                else:
+                                                    # All fallbacks failed, include all runs' info in error to aid debugging
+                                                    workspace.cleanup()
+                                                    combined_stderr = (
+                                                        (stderr or "").rstrip()
+                                                        + "\n\n[Fallback intentado: pdf-header-skip=0, pdf-footer-skip=0]\n"
+                                                        + (fb_completed.stderr or "")
+                                                        + "\n\n[Fallback 2 intentado: regex de cabecera/pie vacíos]\n"
+                                                        + (rx_completed.stderr or "")
+                                                        + "\n\n[Fallback 3 intentado: no-flow=True]\n"
+                                                        + (noflow_completed.stderr or "")
+                                                        + "\n\n[Fallback 4 intentado: pdf-engine=pdftohtml]\n"
+                                                        + (pdftohtml_completed.stderr or "")
+                                                        + "\n\n[Fallback 5 intentado: pdf-engine=pdftohtml + no-chapters]\n"
+                                                        + (nochapters_completed.stderr or "")
+                                                        + "\n\n[Fallback 6 intentado: opciones mínimas + heurísticas desactivadas]\n"
+                                                        + (minimal_completed.stderr or "")
+                                                    )
+                                                    combined_stdout = (
+                                                        (stdout or "").rstrip()
+                                                        + "\n\n[Fallback intentado]\n"
+                                                        + (fb_completed.stdout or "")
+                                                        + "\n\n[Fallback 2 intentado]\n"
+                                                        + (rx_completed.stdout or "")
+                                                        + "\n\n[Fallback 3 intentado]\n"
+                                                        + (noflow_completed.stdout or "")
+                                                        + "\n\n[Fallback 4 intentado]\n"
+                                                        + (pdftohtml_completed.stdout or "")
+                                                        + "\n\n[Fallback 5 intentado]\n"
+                                                        + (nochapters_completed.stdout or "")
+                                                        + "\n\n[Fallback 6 intentado]\n"
+                                                        + (minimal_completed.stdout or "")
+                                                    )
+                                                    raise PreviewError(
+                                                        f"ebook-convert falló (y todos los fallbacks también) con código {minimal_completed.returncode}.",
+                                                        command=minimal_command,
+                                                        stdout=combined_stdout,
+                                                        stderr=combined_stderr,
+                                                        returncode=minimal_completed.returncode,
+                                                    )
+                                    else:
+                                        # Fallbacks 1-4 failed
+                                        workspace.cleanup()
+                                        combined_stderr = (
+                                            (stderr or "").rstrip()
+                                            + "\n\n[Fallback intentado: pdf-header-skip=0, pdf-footer-skip=0]\n"
+                                            + (fb_completed.stderr or "")
+                                            + "\n\n[Fallback 2 intentado: regex de cabecera/pie vacíos]\n"
+                                            + (rx_completed.stderr or "")
+                                            + "\n\n[Fallback 3 intentado: no-flow=True]\n"
+                                            + (noflow_completed.stderr or "")
+                                            + "\n\n[Fallback 4 intentado: pdf-engine=pdftohtml]\n"
+                                            + (pdftohtml_completed.stderr or "")
+                                        )
+                                        combined_stdout = (
+                                            (stdout or "").rstrip()
+                                            + "\n\n[Fallback intentado]\n"
+                                            + (fb_completed.stdout or "")
+                                            + "\n\n[Fallback 2 intentado]\n"
+                                            + (rx_completed.stdout or "")
+                                            + "\n\n[Fallback 3 intentado]\n"
+                                            + (noflow_completed.stdout or "")
+                                            + "\n\n[Fallback 4 intentado]\n"
+                                            + (pdftohtml_completed.stdout or "")
+                                        )
+                                        raise PreviewError(
+                                            f"ebook-convert falló (y los fallbacks 1-4 también) con código {pdftohtml_completed.returncode}.",
+                                            command=pdftohtml_command,
+                                            stdout=combined_stdout,
+                                            stderr=combined_stderr,
+                                            returncode=pdftohtml_completed.returncode,
+                                        )
+                            else:
+                                    # Fallbacks 1-3 failed
+                                    workspace.cleanup()
+                                    combined_stderr = (
+                                        (stderr or "").rstrip()
+                                        + "\n\n[Fallback intentado: pdf-header-skip=0, pdf-footer-skip=0]\n"
+                                        + (fb_completed.stderr or "")
+                                        + "\n\n[Fallback 2 intentado: regex de cabecera/pie vacíos]\n"
+                                        + (rx_completed.stderr or "")
+                                        + "\n\n[Fallback 3 intentado: no-flow=True]\n"
+                                        + (noflow_completed.stderr or "")
+                                    )
+                                    combined_stdout = (
+                                        (stdout or "").rstrip()
+                                        + "\n\n[Fallback intentado]\n"
+                                        + (fb_completed.stdout or "")
+                                        + "\n\n[Fallback 2 intentado]\n"
+                                        + (rx_completed.stdout or "")
+                                        + "\n\n[Fallback 3 intentado]\n"
+                                        + (noflow_completed.stdout or "")
+                                    )
+                                    raise PreviewError(
+                                        f"ebook-convert falló (y los fallbacks 1, 2 y 3 también) con código {noflow_completed.returncode}.",
+                                        command=noflow_command,
+                                        stdout=combined_stdout,
+                                        stderr=combined_stderr,
+                                        returncode=noflow_completed.returncode,
+                                    )
+                    else:
+                        # Fallbacks 1-2 failed
+                        workspace.cleanup()
+                        combined_stderr = (
+                            (stderr or "").rstrip()
+                            + "\n\n[Fallback intentado: pdf-header-skip=0, pdf-footer-skip=0]\n"
+                            + (fb_completed.stderr or "")
+                            + "\n\n[Fallback 2 intentado: regex de cabecera/pie vacíos]\n"
+                            + (rx_completed.stderr or "")
+                        )
+                        combined_stdout = (
+                            (stdout or "").rstrip()
+                            + "\n\n[Fallback intentado]\n"
+                            + (fb_completed.stdout or "")
+                            + "\n\n[Fallback 2 intentado]\n"
+                            + (rx_completed.stdout or "")
+                        )
+                        raise PreviewError(
+                            f"ebook-convert falló (y los fallbacks 1 y 2 también) con código {rx_completed.returncode}.",
+                            command=regex_command,
+                            stdout=combined_stdout,
+                            stderr=combined_stderr,
+                            returncode=rx_completed.returncode,
+                        )
             else:
-                # Include both runs' info in the error to aid debugging.
+                # Include both runs' info in error to aid debugging.
                 workspace.cleanup()
                 combined_stderr = (
                     (stderr or "").rstrip()
@@ -315,7 +647,7 @@ def run_preview(
                     returncode=fb_completed.returncode,
                 )
 
-    if completed.returncode != 0:
+    if completed.returncode != 0 and not _is_header_footer_detection_bug(stderr):
         workspace.cleanup()
         raise PreviewError(
             f"ebook-convert finalizó con código {completed.returncode}.",
