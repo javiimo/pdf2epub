@@ -48,3 +48,10 @@ Documentación y soporte operativo
 - [ ] Incluir guía de resolución de problemas (p.ej. cómo ajustar DPI o márgenes si Calibre recorta mal).
 - [ ] Actualizar la GUI para mostrar estado del preprocesado y advertencias (regiones omitidas, errores de redacción).
 
+Solución de errores de conversión
+- [x] Implementar fallback para el error de detección de cabecera/pie de página (IndexError en find_header_footer)
+  - [x] Detectar el error específico en el stderr de Calibre
+  - [x] Implementar múltiples niveles de fallback (desactivar detección, usar regex vacíos, etc.)
+  - [x] Añadir fallback final usando pdftohtml + ebook-convert en dos pasos
+  - [x] Modificar la lógica para considerar exitoso si el archivo EPUB se crea incluso con advertencias
+
