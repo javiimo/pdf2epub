@@ -23,3 +23,5 @@ Usa siempre los ejecutables de `.venv-gpu` para tests/comandos y marca checklist
 # Estilo de programación
 
 Asegúrate de usar estilo clean code. Hacerlo mantenible y tratar de añadir únicamente los cambios estrictamente necesarios y probar que funcionan con toy examples. Enfoca cada cambio para que respete el plan global y todas las piezas casen adecuadamente. Trata de hacerlo modular para poder detectar los fallos. Haz exceptions significativos y solo trata de resolverlos cuando tengas una forma clara de hacerlo.
+
+Todos los tests deben crearse en la carpeta tests.
