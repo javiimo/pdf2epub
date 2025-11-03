@@ -89,6 +89,16 @@
       "hidden": true
     },
     {
+      "id": "list-recipes",
+      "cli": "--list-recipes",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Imprime el listado de recetas integradas de Calibre y termina sin convertir.",
+      "category": "profiles",
+      "depends_on": [],
+      "notes": "Opción informativa: detiene la conversión normal tras mostrar las recetas."
+    },
+    {
       "id": "version",
       "cli": "--version",
       "value_type": "boolean",
@@ -636,15 +646,6 @@
       ]
     },
     {
-      "id": "add-alt-text-to-img",
-      "cli": "--add-alt-text-to-img",
-      "value_type": "boolean",
-      "domain": null,
-      "description": "Añade texto alternativo usando metadatos del PDF cuando faltan.",
-      "category": "structure",
-      "depends_on": []
-    },
-    {
       "id": "chapter",
       "cli": "--chapter",
       "value_type": "string",
@@ -730,6 +731,15 @@
         "format": "xpath"
       },
       "description": "XPath que define el punto inicial de lectura.",
+      "category": "structure",
+      "depends_on": []
+    },
+    {
+      "id": "add-alt-text-to-img",
+      "cli": "--add-alt-text-to-img",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Cuando una etiqueta <img> no tiene atributo alt, busca metadatos en la imagen asociada para texto alternativo y lo usa.",
       "category": "structure",
       "depends_on": []
     },
@@ -1110,7 +1120,21 @@
           "pdftohtml"
         ]
       },
-      "description": "Selecciona el motor de análisis del PDF.",
+      "description": "Selecciona el motor PDF a usar para la conversión.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "pdf-footer-skip",
+      "cli": "--pdf-footer-skip",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": -999,
+        "max": 999,
+        "units": "pixels"
+      },
+      "description": "Omite todo hasta el número especificado de píxeles en la parte inferior de una página. Los números negativos significan autodetectar y eliminar pies de página.",
       "category": "pdf_input",
       "depends_on": []
     },
@@ -1122,7 +1146,21 @@
         "kind": "string",
         "format": "regex"
       },
-      "description": "Regex para detectar y eliminar el pie de página.",
+      "description": "Expresión regular para eliminar líneas en la parte inferior de una página. Solo funciona con el motor PDF de calibre.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "pdf-header-skip",
+      "cli": "--pdf-header-skip",
+      "value_type": "integer",
+      "domain": {
+        "kind": "range",
+        "min": -999,
+        "max": 999,
+        "units": "pixels"
+      },
+      "description": "Omite todo hasta el número especificado de píxeles en la parte superior de una página. Los números negativos significan autodetectar y eliminar encabezados.",
       "category": "pdf_input",
       "depends_on": []
     },
@@ -1134,35 +1172,96 @@
         "kind": "string",
         "format": "regex"
       },
-      "description": "Regex para detectar y eliminar la cabecera.",
+      "description": "Expresión regular para eliminar líneas en la parte superior de una página. Solo funciona con el motor PDF de calibre.",
       "category": "pdf_input",
       "depends_on": []
     },
     {
-      "id": "pdf-footer-skip",
-      "cli": "--pdf-footer-skip",
-      "value_type": "integer",
+      "id": "formatting-type",
+      "cli": "--formatting-type",
+      "value_type": "enum",
       "domain": {
-        "kind": "range",
-        "min": -1000,
-        "max": 1000,
-        "units": "px"
+        "kind": "enum",
+        "values": [
+          "auto",
+          "plain",
+          "heuristic",
+          "textile",
+          "markdown"
+        ]
       },
-      "description": "Pixeles del final de la página a ignorar antes de aplicar el regex.",
+      "description": "Selecciona cómo interpreta Calibre el formato del contenido antes de generar HTML.",
       "category": "pdf_input",
       "depends_on": []
     },
     {
-      "id": "pdf-header-skip",
-      "cli": "--pdf-header-skip",
-      "value_type": "integer",
+      "id": "markdown-extensions",
+      "cli": "--markdown-extensions",
+      "value_type": "string",
       "domain": {
-        "kind": "range",
-        "min": -1000,
-        "max": 1000,
-        "units": "px"
+        "kind": "list",
+        "item": "text",
+        "separator": ",",
+        "values": [
+          "abbr",
+          "admonition",
+          "attr_list",
+          "codehilite",
+          "def_list",
+          "extra",
+          "fenced_code",
+          "footnotes",
+          "legacy_attrs",
+          "legacy_em",
+          "meta",
+          "nl2br",
+          "sane_lists",
+          "smarty",
+          "tables",
+          "toc",
+          "wikilinks"
+        ]
       },
-      "description": "Pixeles de la parte superior a ignorar antes del regex de cabecera.",
+      "description": "Activa extensiones opcionales de Markdown cuando el motor de formato lo soporta.",
+      "category": "pdf_input",
+      "depends_on": [
+        "--formatting-type"
+      ]
+    },
+    {
+      "id": "paragraph-type",
+      "cli": "--paragraph-type",
+      "value_type": "enum",
+      "domain": {
+        "kind": "enum",
+        "values": [
+          "auto",
+          "block",
+          "single",
+          "print",
+          "unformatted",
+          "off"
+        ]
+      },
+      "description": "Define cómo detectar párrafos en el texto extraído (saltos de línea, sangrías, etc.).",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "preserve-spaces",
+      "cli": "--preserve-spaces",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Evita que Calibre condense espacios consecutivos al interpretar el contenido.",
+      "category": "pdf_input",
+      "depends_on": []
+    },
+    {
+      "id": "txt-in-remove-indents",
+      "cli": "--txt-in-remove-indents",
+      "value_type": "boolean",
+      "domain": null,
+      "description": "Elimina sangrías iniciales en líneas importadas desde texto plano.",
       "category": "pdf_input",
       "depends_on": []
     },

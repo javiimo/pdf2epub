@@ -56,3 +56,14 @@ Solución de errores de conversión
   - [x] Modificar la lógica para considerar exitoso si el archivo EPUB se crea incluso con advertencias
   - [x] Corregir error de sintaxis en layout.py que impedía la detección de layout
 
+Actualización de opciones de Calibre
+- [x] Eliminar opción --new-pdf-engine no soportada
+- [x] Añadir nuevas opciones reconocidas por la versión actual:
+  - [x] --add-alt-text-to-img
+  - [x] --pdf-engine
+  - [x] --pdf-footer-regex
+  - [x] --pdf-footer-skip
+  - [x] --pdf-header-regex
+  - [x] --pdf-header-skip
+- [x] Actualizar tool_description.md con las nuevas opciones
+

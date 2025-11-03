@@ -78,28 +78,46 @@ def _probe_cli_info(
     run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> Optional[CliSupportInfo]:
     with tempfile.TemporaryDirectory(prefix="pdf2epub-probe-") as tmpdir:
-        dummy_input = Path(tmpdir) / "dummy.txt"
-        dummy_input.write_text("probe", encoding="utf-8")
-        dummy_output = Path(tmpdir) / "dummy.epub"
-        try:
-            completed = run(
-                [executable, str(dummy_input), str(dummy_output), "--help"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError:
-            return None
+        tmp_path = Path(tmpdir)
+        help_chunks = []
+        streams = []
+        scenarios = (
+            ("dummy.pdf", b"%PDF-1.4\n%%EOF\n"),
+            ("dummy.txt", b"probe\n"),
+        )
+        for filename, payload in scenarios:
+            input_path = tmp_path / filename
+            output_path = tmp_path / f"{input_path.stem}.epub"
+            try:
+                input_path.write_bytes(payload)
+            except OSError:
+                return None
 
-    stdout = completed.stdout or ""
-    stderr = completed.stderr or ""
-    combined = "\n".join(part for part in (stdout, stderr) if part)
+            try:
+                completed = run(
+                    [executable, str(input_path), str(output_path), "--help"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except OSError:
+                return None
+
+            stdout = completed.stdout or ""
+            stderr = completed.stderr or ""
+            if stdout:
+                help_chunks.append(stdout)
+            if stderr:
+                help_chunks.append(stderr)
+            streams.extend(part for part in (stdout, stderr) if part)
+
+    combined = "\n".join(help_chunks)
 
     help_entries = _extract_help_entries(combined)
     flags = set(help_entries)
 
     if not flags:
-        flags = _extract_flags([stdout, stderr])
+        flags = _extract_flags(streams)
 
     if not flags:
         return None

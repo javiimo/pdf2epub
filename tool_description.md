@@ -6,7 +6,9 @@ manual.calibre-ebook.com
 
 --output-profile: perfil del dispositivo de salida.
 
---help, --version.
+--help, --list-recipes, --version.
+
+--list-recipes: imprime recetas integradas y detiene la conversión.
 
 ## Look & Feel (tipografías, CSS, espaciado) 
 manual.calibre-ebook.com
@@ -67,10 +69,9 @@ manual.calibre-ebook.com
 
 --sr1-search|--sr1-replace … --sr3-*: tres reglas in-line rápidas.
 
-## Structure Detection (capítulos, portada, comienzo) 
+## Structure Detection (capítulos, portada, comienzo)
 manual.calibre-ebook.com
 
---add-alt-text-to-img: completa alt con metadatos.
 
 --chapter <XPath>: detecta títulos de capítulo.
 
@@ -87,6 +88,8 @@ manual.calibre-ebook.com
 --remove-first-image: elimina primera imagen.
 
 --start-reading-at <XPath>: punto de inicio de lectura.
+
+--add-alt-text-to-img: añade texto alternativo a imágenes sin atributo alt.
 
 Table of Contents (TOC) 
 manual.calibre-ebook.com
@@ -117,24 +120,37 @@ manual.calibre-ebook.com
 
 --verbose|-v (repetible): verbosidad.
 
-## PDF Input (entrada PDF) 
+## PDF Input (entrada PDF)
 manual.calibre-ebook.com
 
 --input-encoding <charset>: fuerza codificación.
 
 --no-images: no extrae imágenes.
 
---pdf-engine calibre|pdftohtml: motor; calibre elimina encabezados/pies automáticamente.
+--pdf-engine calibre|pdftohtml: selecciona el motor PDF a usar para la conversión.
 
---pdf-footer-regex / --pdf-header-regex: elimina primera/última línea con regex.
+--pdf-footer-skip <pixels>: omite contenido hasta el número de píxeles especificado en la parte inferior de la página.
 
---pdf-footer-skip <px> / --pdf-header-skip <px>: recorte por píxeles; valores negativos = auto-detección; 0 = no quitar.
+--pdf-footer-regex <regex>: expresión regular para eliminar líneas en la parte inferior de una página.
+
+--pdf-header-skip <pixels>: omite contenido hasta el número de píxeles especificado en la parte superior de la página.
+
+--pdf-header-regex <regex>: expresión regular para eliminar líneas en la parte superior de una página.
+
+--formatting-type auto|plain|heuristic|textile|markdown: elige el analizador del contenido plano.
+
+--markdown-extensions ext1,ext2,…: habilita extensiones extra de Markdown cuando procede.
+
+--paragraph-type auto|block|single|print|unformatted|off: controla cómo detectar párrafos.
+
+--preserve-spaces: conserva espacios consecutivos al importar texto.
+
+--txt-in-remove-indents: elimina sangrías de líneas procedentes de texto plano.
 
 --unwrap-factor <0..1>: umbral de desenvuelto de línea.
 
 ## EPUB Output (salida EPUB) 
 manual.calibre-ebook.com
-+1
 
 --dont-split-on-page-breaks: no dividir por saltos de página.
 

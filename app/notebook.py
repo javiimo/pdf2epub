@@ -877,7 +877,8 @@ class ConfigNotebook(ttk.Frame):
         left = ttk.Frame(widget)
         left.grid(row=0, column=0, sticky="nsew", padx=(12, 6), pady=12)
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(3, weight=1)
+        left.rowconfigure(2, weight=1)  # Make preprocessing frame expandable
+        left.rowconfigure(3, weight=2)  # Make form frame more expandable
 
         right = ttk.Frame(widget)
         right.grid(row=0, column=1, sticky="nsew", padx=(6, 12), pady=12)
@@ -978,64 +979,103 @@ class ConfigNotebook(ttk.Frame):
 
     def _create_preprocess_controls(self, parent: ttk.Frame, tab_widget_id: str, config: TabConfiguration) -> None:
         frame = ttk.LabelFrame(parent, text="Preprocesado (convierte bloques a imágenes antes de Calibre)")
-        frame.grid(row=2, column=0, sticky="ew", pady=(0, 12))
-        frame.columnconfigure(1, weight=1)
+        frame.grid(row=2, column=0, sticky="nsew", pady=(0, 12))
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+
+        # Create a scrollable frame for the preprocessing controls
+        canvas = tk.Canvas(frame, highlightthickness=0, borderwidth=0)
+        canvas.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
+        canvas.configure(yscrollincrement=20)
+
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 8), pady=8)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        inner = ttk.Frame(canvas)
+        inner.columnconfigure(1, weight=1)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(event: tk.Event) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event: tk.Event) -> None:
+            # Adjust the width to account for the scrollbar
+            canvas.itemconfigure(window_id, width=event.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        self._bind_mousewheel(canvas, inner)
+        
+        # Make sure the canvas gets focus for mouse wheel scrolling
+        canvas.bind("<Enter>", lambda e: canvas.focus_set())
+        
+        # Also bind mouse wheel to the inner frame to ensure it works anywhere in the area
+        inner.bind("<Enter>", lambda e: canvas.focus_set())
+        
+        # Bind mouse wheel to the entire frame to ensure it works anywhere in the preprocessing area
+        frame.bind("<Enter>", lambda e: canvas.focus_set())
 
         message = (
             "Rasteriza fórmulas y tablas problemáticas antes de invocar ebook-convert. "
             "Conviene mantenerlo activo para PDFs con contenido matemático."
         )
-        ttk.Label(frame, text=message, wraplength=520, justify="left").grid(
-            row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 4)
+        ttk.Label(inner, text=message, wraplength=520, justify="left").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(6, 4)
         )
 
-        controls: Dict[str, Any] = {"frame": frame}
+        controls: Dict[str, Any] = {"frame": frame, "canvas": canvas, "inner": inner}
         extras = config.extras
 
+        # Add checkbox to enable/disable preprocessing
+        enabled_var = tk.BooleanVar(value=bool(extras.get("preproc.enabled", True)))
+        enabled_check = ttk.Checkbutton(inner, text="Activar preprocesado", variable=enabled_var)
+        enabled_check.grid(row=1, column=0, columnspan=3, sticky="w", pady=4)
+
         device_var = tk.StringVar(value=str(extras.get("preproc.device", "gpu")))
-        ttk.Label(frame, text="Dispositivo").grid(row=1, column=0, sticky="w", padx=(8, 6), pady=4)
-        device_combo = ttk.Combobox(frame, textvariable=device_var, values=("gpu", "cpu"), state="readonly", width=8)
-        device_combo.grid(row=1, column=1, sticky="w", padx=(0, 8), pady=4)
+        ttk.Label(inner, text="Dispositivo").grid(row=2, column=0, sticky="w", padx=(8, 6), pady=4)
+        device_combo = ttk.Combobox(inner, textvariable=device_var, values=("gpu", "cpu"), state="readonly", width=8)
+        device_combo.grid(row=2, column=1, sticky="w", padx=(0, 8), pady=4)
 
         dpi_var = tk.IntVar(value=int(extras.get("preproc.dpi", 360) or 360))
-        ttk.Label(frame, text="DPI detectores").grid(row=2, column=0, sticky="w", padx=(8, 6), pady=4)
-        tk.Spinbox(frame, from_=200, to=600, increment=20, textvariable=dpi_var, width=8).grid(
-            row=2, column=1, sticky="w", padx=(0, 8), pady=4
+        ttk.Label(inner, text="DPI detectores").grid(row=3, column=0, sticky="w", padx=(8, 6), pady=4)
+        tk.Spinbox(inner, from_=200, to=600, increment=20, textvariable=dpi_var, width=8).grid(
+            row=3, column=1, sticky="w", padx=(0, 8), pady=4
         )
 
         convert_math_var = tk.BooleanVar(value=bool(extras.get("preproc.convert_math", True)))
         convert_inline_var = tk.BooleanVar(value=bool(extras.get("preproc.convert_inline", True)))
         convert_tables_var = tk.BooleanVar(value=bool(extras.get("preproc.convert_tables", True)))
 
-        ttk.Checkbutton(frame, text="Convertir ecuaciones", variable=convert_math_var).grid(
-            row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4
-        )
-        ttk.Checkbutton(frame, text="Incluir ecuaciones inline", variable=convert_inline_var).grid(
+        ttk.Checkbutton(inner, text="Convertir ecuaciones", variable=convert_math_var).grid(
             row=4, column=0, columnspan=2, sticky="w", padx=8, pady=4
         )
-        ttk.Checkbutton(frame, text="Convertir tablas", variable=convert_tables_var).grid(
+        ttk.Checkbutton(inner, text="Incluir ecuaciones inline", variable=convert_inline_var).grid(
             row=5, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        )
+        ttk.Checkbutton(inner, text="Convertir tablas", variable=convert_tables_var).grid(
+            row=6, column=0, columnspan=2, sticky="w", padx=8, pady=4
         )
 
         min_area_var = tk.IntVar(value=int(extras.get("preproc.min_area_px", 150) or 150))
         margin_var = tk.DoubleVar(value=float(extras.get("preproc.margin_pts", 1.0) or 1.0))
-        ttk.Label(frame, text="Área mínima (px²)").grid(row=6, column=0, sticky="w", padx=(8, 6), pady=4)
-        tk.Spinbox(frame, from_=0, to=50000, increment=10, textvariable=min_area_var, width=8).grid(
-            row=6, column=1, sticky="w", padx=(0, 8), pady=4
-        )
-        ttk.Label(frame, text="Margen (pt)").grid(row=7, column=0, sticky="w", padx=(8, 6), pady=4)
-        tk.Spinbox(frame, from_=0.0, to=20.0, increment=0.5, textvariable=margin_var, width=8).grid(
+        ttk.Label(inner, text="Área mínima (px²)").grid(row=7, column=0, sticky="w", padx=(8, 6), pady=4)
+        tk.Spinbox(inner, from_=0, to=50000, increment=10, textvariable=min_area_var, width=8).grid(
             row=7, column=1, sticky="w", padx=(0, 8), pady=4
+        )
+        ttk.Label(inner, text="Margen (pt)").grid(row=8, column=0, sticky="w", padx=(8, 6), pady=4)
+        tk.Spinbox(inner, from_=0.0, to=20.0, increment=0.5, textvariable=margin_var, width=8).grid(
+            row=8, column=1, sticky="w", padx=(0, 8), pady=4
         )
 
         pages_var = tk.StringVar(value=str(extras.get("preproc.pages", "")))
-        ttk.Label(frame, text="Páginas a procesar").grid(row=8, column=0, sticky="w", padx=(8, 6), pady=4)
-        ttk.Entry(frame, textvariable=pages_var).grid(row=8, column=1, sticky="ew", padx=(0, 8), pady=4)
-        ttk.Label(frame, text="Ej: 2-5,10,13-17").grid(row=8, column=2, sticky="w", padx=(0, 8), pady=4)
+        ttk.Label(inner, text="Páginas a procesar").grid(row=9, column=0, sticky="w", padx=(8, 6), pady=4)
+        ttk.Entry(inner, textvariable=pages_var).grid(row=9, column=1, sticky="ew", padx=(0, 8), pady=4)
+        ttk.Label(inner, text="Ej: 2-5,10,13-17").grid(row=9, column=2, sticky="w", padx=(0, 8), pady=4)
 
         def _on_change(*_args: Any) -> None:
             cfg = self._config_by_tab[tab_widget_id]
-            cfg.extras["preproc.enabled"] = True
+            cfg.extras["preproc.enabled"] = bool(enabled_var.get())
             cfg.extras["preproc.device"] = device_var.get().strip().lower() or "cpu"
             try:
                 cfg.extras["preproc.dpi"] = max(200, min(600, int(dpi_var.get())))
@@ -1054,7 +1094,19 @@ class ConfigNotebook(ttk.Frame):
                 cfg.extras["preproc.margin_pts"] = 1.0
             cfg.extras["preproc.pages"] = pages_var.get().strip()
 
+        def _on_enabled_change(*_args: Any) -> None:
+            # Enable/disable all controls based on the enabled checkbox
+            state = "normal" if enabled_var.get() else "disabled"
+            for widget in [device_combo, device_combo.master.winfo_children()[0]] + inner.winfo_children():
+                if isinstance(widget, (ttk.Combobox, tk.Spinbox, ttk.Entry, ttk.Checkbutton)) and widget != enabled_check:
+                    try:
+                        widget.configure(state=state)
+                    except tk.TclError:
+                        pass
+            _on_change()
+
         for var in (
+            enabled_var,
             device_var,
             dpi_var,
             convert_math_var,
@@ -1065,9 +1117,12 @@ class ConfigNotebook(ttk.Frame):
             pages_var,
         ):
             var.trace_add("write", _on_change)
+        
+        enabled_var.trace_add("write", _on_enabled_change)
 
         controls.update(
             {
+                "enabled_var": enabled_var,
                 "device_var": device_var,
                 "dpi_var": dpi_var,
                 "convert_math_var": convert_math_var,
@@ -1079,12 +1134,17 @@ class ConfigNotebook(ttk.Frame):
             }
         )
         self._preprocess_controls[tab_widget_id] = controls
+        
+        # Initialize the state of controls based on the enabled checkbox
+        # Use after_idle to ensure the tab is fully initialized before calling this
+        self.after_idle(_on_enabled_change)
 
     def _sync_preprocess_controls(self, tab_widget_id: str) -> None:
         controls = self._preprocess_controls.get(tab_widget_id)
         if not controls:
             return
         cfg = self._config_by_tab[tab_widget_id]
+        controls["enabled_var"].set(bool(cfg.extras.get("preproc.enabled", True)))
         controls["device_var"].set(str(cfg.extras.get("preproc.device", "gpu")))
         controls["convert_math_var"].set(bool(cfg.extras.get("preproc.convert_math", True)))
         controls["convert_inline_var"].set(bool(cfg.extras.get("preproc.convert_inline", True)))
@@ -1093,6 +1153,20 @@ class ConfigNotebook(ttk.Frame):
         controls["margin_var"].set(float(cfg.extras.get("preproc.margin_pts", 1.0) or 1.0))
         controls["pages_var"].set(str(cfg.extras.get("preproc.pages", "")))
         controls["dpi_var"].set(int(cfg.extras.get("preproc.dpi", 360) or 360))
+        
+        # Update the state of controls based on the enabled checkbox
+        enabled = bool(cfg.extras.get("preproc.enabled", True))
+        state = "normal" if enabled else "disabled"
+        inner = controls["inner"]
+        for widget in inner.winfo_children():
+            if isinstance(widget, (ttk.Combobox, tk.Spinbox, ttk.Entry, ttk.Checkbutton)):
+                # Skip the enabled checkbox itself
+                if widget.cget("text") == "Activar preprocesado":
+                    continue
+                try:
+                    widget.configure(state=state)
+                except tk.TclError:
+                    pass
 
     def _current_tab_id(self) -> Optional[str]:
         selection = self.notebook.select()
