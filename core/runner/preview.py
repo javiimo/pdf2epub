@@ -12,6 +12,12 @@ from core.options.catalog import Catalog, get_catalog
 from core.parser import OpfParserError, SpineItem, parse_spine
 from core.runner.cli_support import get_supported_flags
 from core.runner.options_cli import build_convert_command
+from core.runner.pdf_preprocessor import (
+    PreprocessError,
+    PreprocessResult,
+    options_from_extras,
+    preprocess_pdf,
+)
 from core.runner.pdf_subset import PdfSubsetError, prepare_pdf_subset
 from core.runner.temp_manager import TemporaryWorkspace
 from core.presets import apply_preset, get_presets
@@ -48,6 +54,7 @@ class PreviewResult:
     spine_first_html: Path
     spine_linear_items: Sequence[SpineItem] = ()
     skipped_options: Sequence[str] = ()
+    preprocess: Optional[PreprocessResult] = None
 
 
 class PreviewError(RuntimeError):
@@ -98,6 +105,7 @@ def run_preview(
             apply_preset(cfg_options, kobo)
             config = replace(config, options=cfg_options)
     workspace = workspace_factory()
+    preprocess_result: Optional[PreprocessResult] = None
     try:
         def subset_run(command: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess:
             return run(
@@ -114,7 +122,17 @@ def run_preview(
             qpdf_path=qpdf_path,
             run=subset_run,
         )
-    except PdfSubsetError as exc:
+
+        extras = getattr(config, "extras", {}) or {}
+        options = options_from_extras(extras)
+        if options.should_process():
+            preprocess_result = preprocess_pdf(
+                subset_pdf,
+                workspace=workspace.path / "preprocess",
+                options=options,
+            )
+            subset_pdf = preprocess_result.output_pdf
+    except (PdfSubsetError, PreprocessError) as exc:
         workspace.cleanup()
         raise PreviewError(
             str(exc),
@@ -368,4 +386,5 @@ def run_preview(
         spine_first_html=spine_first,
         skipped_options=tuple(skipped),
         spine_linear_items=tuple(linear_html),
+        preprocess=preprocess_result,
     )

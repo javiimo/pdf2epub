@@ -97,7 +97,14 @@ Argumentos disponibles:
 ### Presets combinables
 1. Pulsa **Presets → Seleccionar**.
 2. Marca uno o varios presets. Se aplican siguiendo el orden lógico Base → Columnas → Contenido → TOC → Limpieza → Debug y el último gana en opciones exclusivas.
-3. Los conflictos detectados y las reglas post-procesadas (heurísticas desactivadas, etc.) se resumen en la consola y en la barra de estado.
+3. Los conflictos detectados y el resultado del preprocesado (páginas rasterizadas, opciones aplicadas, etc.) se resumen en la consola y en la barra de estado.
+
+### Preprocesado de fórmulas y tablas
+- Cada pestaña incluye un panel **Preprocesado** que ejecuta una canalización previa a ebook-convert.
+- El PDF se rasteriza a 360 dpi, se detectan fórmulas (incluyendo inline) y tablas y se sustituyen por imágenes incrustadas en el PDF temporal.
+- Puedes elegir CPU o GPU. En GPU se calcula automáticamente el lote máximo en función de la memoria disponible para lanzar los detectores en paralelo.
+- Ajusta qué convertir (ecuaciones de bloque, inline y tablas), el área mínima de detección, el margen en puntos y las páginas a procesar (formatos tipo `2-5,10,13-17`).
+- El resumen del preprocesado (páginas afectadas, regiones convertidas, dispositivo y lote) aparece tanto en la consola como en los mensajes de estado.
 
 ## Ejecutar pruebas
 Dentro del entorno virtual:

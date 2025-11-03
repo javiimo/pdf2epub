@@ -42,7 +42,7 @@ from core.runner.epub import (
     package_epub_from_oeb,
 )
 from core.runner.preview import PreviewError, PreviewResult, run_preview
-from core.runner.enrich import enrich_oeb_with_ml, EnrichOptions
+from core.runner.pdf_preprocessor import options_from_extras
 
 CliPrompt = Callable[[], Optional[str]]
 ExportPrompt = Callable[[TabConfiguration], Optional[str]]
@@ -98,7 +98,7 @@ class ConfigNotebook(ttk.Frame):
         self._console_widgets: Dict[str, tk.Text] = {}
         self._status_labels: Dict[str, ttk.Label] = {}
         self._spine_controls: Dict[str, Dict[str, Any]] = {}
-        self._postprocess_controls: Dict[str, Dict[str, Any]] = {}
+        self._preprocess_controls: Dict[str, Dict[str, Any]] = {}
         self._preview_state: Dict[str, PreviewResult] = {}
         self._running_jobs: Dict[str, dict] = {}
         self._preview_runner = self._wrap_preview_runner(preview_runner)
@@ -697,33 +697,39 @@ class ConfigNotebook(ttk.Frame):
         if report.applied:
             for preset in report.applied:
                 for key, value in (preset.options or {}).items():
-                    if not isinstance(key, str) or not key.startswith("pp."):
+                    if not isinstance(key, str):
                         continue
-                    if key == "pp.dpi":
+                    if key.startswith("pre."):
                         try:
-                            config.extras["enrich.dpi"] = int(value) if value is not None else 360
+                            payload = str(key[4:])
                         except Exception:
-                            pass
-                    elif key == "pp.remove-math-text":
-                        config.extras["remove_math_text"] = bool(value)
-                    elif key == "pp.suppress-math-in-tables":
-                        config.extras["suppress_math_inside_tables"] = bool(value)
-                    elif key == "pp.table-cover-threshold":
-                        try:
-                            config.extras["table_cover_threshold"] = float(value) if value is not None else 0.9
-                        except Exception:
-                            pass
-                    elif key == "pp.image-format":
-                        fmt = str(value).lower() if value is not None else "png"
-                        if fmt not in ("png", "jpeg"):
-                            fmt = "png"
-                        config.extras["enrich.format"] = fmt
-                    elif key == "pp.jpeg-quality":
-                        try:
-                            config.extras["enrich.jpeg_quality"] = max(50, min(100, int(value)))
-                        except Exception:
-                            pass
-        self._sync_postprocess_controls(tab_id)
+                            continue
+                        if payload == "device":
+                            config.extras["preproc.device"] = str(value or "cpu").lower()
+                        elif payload == "convert-math":
+                            config.extras["preproc.convert_math"] = bool(value)
+                        elif payload == "convert-inline":
+                            config.extras["preproc.convert_inline"] = bool(value)
+                        elif payload == "convert-tables":
+                            config.extras["preproc.convert_tables"] = bool(value)
+                        elif payload == "min-area":
+                            try:
+                                config.extras["preproc.min_area_px"] = max(0, int(value))
+                            except Exception:
+                                pass
+                        elif payload == "margin":
+                            try:
+                                config.extras["preproc.margin_pts"] = max(0.0, float(value))
+                            except Exception:
+                                pass
+                        elif payload == "pages":
+                            config.extras["preproc.pages"] = str(value or "")
+                        elif payload == "enabled":
+                            config.extras["preproc.enabled"] = bool(value)
+                        continue
+                    if key.startswith("pp."):
+                        continue
+        self._sync_preprocess_controls(tab_id)
         applied_names = ", ".join(preset.name for preset in report.applied) or "Ninguno"
         self._append_console(tab_id, f"[OK] Presets aplicados: {applied_names}")
 
@@ -767,22 +773,24 @@ class ConfigNotebook(ttk.Frame):
         if not name:
             return
 
-        # Include post-process extras into preset options with 'pp.' namespace
-        pp_options = {
+        # Include preprocesado extras into preset options with 'pre.' namespace
+        pre_options = {
             **copy.deepcopy(config.options),
-            "pp.dpi": int(config.extras.get("enrich.dpi", 360) or 360),
-            "pp.remove-math-text": bool(config.extras.get("remove_math_text", True)),
-            "pp.suppress-math-in-tables": bool(config.extras.get("suppress_math_inside_tables", True)),
-            "pp.table-cover-threshold": float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
-            "pp.image-format": str(config.extras.get("enrich.format", "png")).lower(),
-            "pp.jpeg-quality": int(config.extras.get("enrich.jpeg_quality", 85) or 85),
+            "pre.enabled": bool(config.extras.get("preproc.enabled", True)),
+            "pre.device": str(config.extras.get("preproc.device", "gpu")),
+            "pre.convert-math": bool(config.extras.get("preproc.convert_math", True)),
+            "pre.convert-inline": bool(config.extras.get("preproc.convert_inline", True)),
+            "pre.convert-tables": bool(config.extras.get("preproc.convert_tables", True)),
+            "pre.min-area": int(config.extras.get("preproc.min_area_px", 150) or 150),
+            "pre.margin": float(config.extras.get("preproc.margin_pts", 1.0) or 1.0),
+            "pre.pages": str(config.extras.get("preproc.pages", "")),
         }
         preset = Preset(
             id=f"custom-{uuid4().hex}",
             name=name.strip(),
             description=f"Preset personalizado basado en {config.title}",
             layer="custom",
-            options=pp_options,
+            options=pre_options,
         )
         self._presets.append(preset)
         self._append_console(tab_id, f"[OK] Preset guardado: {preset.name}")
@@ -879,6 +887,8 @@ class ConfigNotebook(ttk.Frame):
 
         tab_widget_id = str(widget)
 
+        self._ensure_preprocess_defaults(config)
+
         summary = ttk.Label(
             left,
             text=self._format_summary(config),
@@ -896,7 +906,7 @@ class ConfigNotebook(ttk.Frame):
 
         self._create_input_controls(left, config, tab_widget_id)
         self._create_side_panel(right, tab_widget_id, config)
-        self._create_postprocess_controls(left, tab_widget_id, config)
+        self._create_preprocess_controls(left, tab_widget_id, config)
 
         form_container = ttk.Frame(left)
         form_container.grid(row=3, column=0, sticky="nsew")
@@ -951,107 +961,138 @@ class ConfigNotebook(ttk.Frame):
         self.after_idle(self.refresh_layouts)
         return tab_widget_id
 
-    def _create_postprocess_controls(self, parent: ttk.Frame, tab_widget_id: str, config: TabConfiguration) -> None:
-        frame = ttk.LabelFrame(parent, text="Post-procesado (detección/HTML)")
+    def _ensure_preprocess_defaults(self, config: TabConfiguration) -> None:
+        defaults = {
+            "preproc.enabled": True,
+            "preproc.device": "gpu",
+            "preproc.convert_math": True,
+            "preproc.convert_inline": True,
+            "preproc.convert_tables": True,
+            "preproc.min_area_px": 150,
+            "preproc.margin_pts": 1.0,
+            "preproc.pages": "",
+            "preproc.dpi": 360,
+        }
+        for key, value in defaults.items():
+            config.extras.setdefault(key, value)
+
+    def _create_preprocess_controls(self, parent: ttk.Frame, tab_widget_id: str, config: TabConfiguration) -> None:
+        frame = ttk.LabelFrame(parent, text="Preprocesado (convierte bloques a imágenes antes de Calibre)")
         frame.grid(row=2, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(1, weight=1)
 
-        controls: Dict[str, Any] = {}
+        message = (
+            "Rasteriza fórmulas y tablas problemáticas antes de invocar ebook-convert. "
+            "Conviene mantenerlo activo para PDFs con contenido matemático."
+        )
+        ttk.Label(frame, text=message, wraplength=520, justify="left").grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 4)
+        )
 
-        # DPI selector for detectors and selective rasterization
-        from_value = 360
-        to_value = 420
-        dpi_var = tk.IntVar(value=int(config.extras.get("enrich.dpi", from_value)))
-        ttk.Label(frame, text="DPI (360–420)").grid(row=0, column=0, sticky="w", padx=(8, 6), pady=4)
-        dpi_spin = tk.Spinbox(frame, from_=from_value, to=to_value, increment=10, textvariable=dpi_var, width=6)
-        dpi_spin.grid(row=0, column=1, sticky="w", padx=(0, 8), pady=4)
+        controls: Dict[str, Any] = {"frame": frame}
+        extras = config.extras
 
-        # Toggle: remove math-like text paragraphs near inserted figures
-        remove_var = tk.BooleanVar(value=bool(config.extras.get("remove_math_text", True)))
-        remove_cb = ttk.Checkbutton(frame, text="Eliminar texto de ecuación (bloque)", variable=remove_var)
-        remove_cb.grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        device_var = tk.StringVar(value=str(extras.get("preproc.device", "gpu")))
+        ttk.Label(frame, text="Dispositivo").grid(row=1, column=0, sticky="w", padx=(8, 6), pady=4)
+        device_combo = ttk.Combobox(frame, textvariable=device_var, values=("gpu", "cpu"), state="readonly", width=8)
+        device_combo.grid(row=1, column=1, sticky="w", padx=(0, 8), pady=4)
 
-        # Optional: suppress math inside tables
-        suppress_var = tk.BooleanVar(value=bool(config.extras.get("suppress_math_inside_tables", True)))
-        suppress_cb = ttk.Checkbutton(frame, text="Suprimir fórmulas dentro de tablas", variable=suppress_var)
-        suppress_cb.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=4)
+        dpi_var = tk.IntVar(value=int(extras.get("preproc.dpi", 360) or 360))
+        ttk.Label(frame, text="DPI detectores").grid(row=2, column=0, sticky="w", padx=(8, 6), pady=4)
+        tk.Spinbox(frame, from_=200, to=600, increment=20, textvariable=dpi_var, width=8).grid(
+            row=2, column=1, sticky="w", padx=(0, 8), pady=4
+        )
 
-        # Optional threshold for table coverage
-        thresh_var = tk.DoubleVar(value=float(config.extras.get("table_cover_threshold", 0.9) or 0.9))
-        ttk.Label(frame, text="Umbral cobertura tabla").grid(row=3, column=0, sticky="w", padx=(8, 6), pady=4)
-        thresh_entry = ttk.Entry(frame, textvariable=thresh_var, width=6)
-        thresh_entry.grid(row=3, column=1, sticky="w", padx=(0, 8), pady=4)
+        convert_math_var = tk.BooleanVar(value=bool(extras.get("preproc.convert_math", True)))
+        convert_inline_var = tk.BooleanVar(value=bool(extras.get("preproc.convert_inline", True)))
+        convert_tables_var = tk.BooleanVar(value=bool(extras.get("preproc.convert_tables", True)))
 
-        # Image format selection for selective rasterization
-        fmt_var = tk.StringVar(value=str(config.extras.get("enrich.format", "png")).lower())
-        ttk.Label(frame, text="Formato imagen").grid(row=4, column=0, sticky="w", padx=(8, 6), pady=4)
-        fmt_combo = ttk.Combobox(frame, textvariable=fmt_var, values=("png", "jpeg"), state="readonly", width=8)
-        fmt_combo.grid(row=4, column=1, sticky="w", padx=(0, 8), pady=4)
+        ttk.Checkbutton(frame, text="Convertir ecuaciones", variable=convert_math_var).grid(
+            row=3, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        )
+        ttk.Checkbutton(frame, text="Incluir ecuaciones inline", variable=convert_inline_var).grid(
+            row=4, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        )
+        ttk.Checkbutton(frame, text="Convertir tablas", variable=convert_tables_var).grid(
+            row=5, column=0, columnspan=2, sticky="w", padx=8, pady=4
+        )
 
-        # JPEG quality when jpeg is selected
-        jq_var = tk.IntVar(value=int(config.extras.get("enrich.jpeg_quality", 85) or 85))
-        ttk.Label(frame, text="JPEG calidad (50–100)").grid(row=5, column=0, sticky="w", padx=(8, 6), pady=4)
-        jq_spin = tk.Spinbox(frame, from_=50, to=100, increment=5, textvariable=jq_var, width=6)
-        jq_spin.grid(row=5, column=1, sticky="w", padx=(0, 8), pady=4)
+        min_area_var = tk.IntVar(value=int(extras.get("preproc.min_area_px", 150) or 150))
+        margin_var = tk.DoubleVar(value=float(extras.get("preproc.margin_pts", 1.0) or 1.0))
+        ttk.Label(frame, text="Área mínima (px²)").grid(row=6, column=0, sticky="w", padx=(8, 6), pady=4)
+        tk.Spinbox(frame, from_=0, to=50000, increment=10, textvariable=min_area_var, width=8).grid(
+            row=6, column=1, sticky="w", padx=(0, 8), pady=4
+        )
+        ttk.Label(frame, text="Margen (pt)").grid(row=7, column=0, sticky="w", padx=(8, 6), pady=4)
+        tk.Spinbox(frame, from_=0.0, to=20.0, increment=0.5, textvariable=margin_var, width=8).grid(
+            row=7, column=1, sticky="w", padx=(0, 8), pady=4
+        )
+
+        pages_var = tk.StringVar(value=str(extras.get("preproc.pages", "")))
+        ttk.Label(frame, text="Páginas a procesar").grid(row=8, column=0, sticky="w", padx=(8, 6), pady=4)
+        ttk.Entry(frame, textvariable=pages_var).grid(row=8, column=1, sticky="ew", padx=(0, 8), pady=4)
+        ttk.Label(frame, text="Ej: 2-5,10,13-17").grid(row=8, column=2, sticky="w", padx=(0, 8), pady=4)
 
         def _on_change(*_args: Any) -> None:
             cfg = self._config_by_tab[tab_widget_id]
+            cfg.extras["preproc.enabled"] = True
+            cfg.extras["preproc.device"] = device_var.get().strip().lower() or "cpu"
             try:
-                cfg.extras["enrich.dpi"] = max(200, min(1200, int(dpi_var.get())))
+                cfg.extras["preproc.dpi"] = max(200, min(600, int(dpi_var.get())))
             except Exception:
-                cfg.extras["enrich.dpi"] = from_value
-            cfg.extras["remove_math_text"] = bool(remove_var.get())
-            cfg.extras["suppress_math_inside_tables"] = bool(suppress_var.get())
+                cfg.extras["preproc.dpi"] = 360
+            cfg.extras["preproc.convert_math"] = bool(convert_math_var.get())
+            cfg.extras["preproc.convert_inline"] = bool(convert_inline_var.get())
+            cfg.extras["preproc.convert_tables"] = bool(convert_tables_var.get())
             try:
-                cfg.extras["table_cover_threshold"] = float(thresh_var.get())
+                cfg.extras["preproc.min_area_px"] = max(0, int(min_area_var.get()))
             except Exception:
-                cfg.extras["table_cover_threshold"] = 0.9
-            fmt = str(fmt_var.get()).lower()
-            if fmt not in ("png", "jpeg"):
-                fmt = "png"
-            cfg.extras["enrich.format"] = fmt
+                cfg.extras["preproc.min_area_px"] = 150
             try:
-                cfg.extras["enrich.jpeg_quality"] = max(50, min(100, int(jq_var.get())))
+                cfg.extras["preproc.margin_pts"] = max(0.0, float(margin_var.get()))
             except Exception:
-                cfg.extras["enrich.jpeg_quality"] = 85
-            # Enable/disable JPEG quality control
-            try:
-                state = tk.NORMAL if fmt == "jpeg" else tk.DISABLED
-                jq_spin.configure(state=state)
-            except Exception:
-                pass
+                cfg.extras["preproc.margin_pts"] = 1.0
+            cfg.extras["preproc.pages"] = pages_var.get().strip()
 
-        dpi_var.trace_add("write", _on_change)
-        remove_var.trace_add("write", _on_change)
-        suppress_var.trace_add("write", _on_change)
-        thresh_var.trace_add("write", _on_change)
-        fmt_var.trace_add("write", _on_change)
-        jq_var.trace_add("write", _on_change)
+        for var in (
+            device_var,
+            dpi_var,
+            convert_math_var,
+            convert_inline_var,
+            convert_tables_var,
+            min_area_var,
+            margin_var,
+            pages_var,
+        ):
+            var.trace_add("write", _on_change)
 
         controls.update(
             {
-                "frame": frame,
+                "device_var": device_var,
                 "dpi_var": dpi_var,
-                "remove_var": remove_var,
-                "suppress_var": suppress_var,
-                "thresh_var": thresh_var,
-                "fmt_var": fmt_var,
-                "jq_var": jq_var,
+                "convert_math_var": convert_math_var,
+                "convert_inline_var": convert_inline_var,
+                "convert_tables_var": convert_tables_var,
+                "min_area_var": min_area_var,
+                "margin_var": margin_var,
+                "pages_var": pages_var,
             }
         )
-        self._postprocess_controls[tab_widget_id] = controls
+        self._preprocess_controls[tab_widget_id] = controls
 
-    def _sync_postprocess_controls(self, tab_widget_id: str) -> None:
-        controls = self._postprocess_controls.get(tab_widget_id)
+    def _sync_preprocess_controls(self, tab_widget_id: str) -> None:
+        controls = self._preprocess_controls.get(tab_widget_id)
         if not controls:
             return
         cfg = self._config_by_tab[tab_widget_id]
-        controls["dpi_var"].set(int(cfg.extras.get("enrich.dpi", 360)))
-        controls["remove_var"].set(bool(cfg.extras.get("remove_math_text", True)))
-        controls["suppress_var"].set(bool(cfg.extras.get("suppress_math_inside_tables", True)))
-        controls["thresh_var"].set(float(cfg.extras.get("table_cover_threshold", 0.9) or 0.9))
-        controls["fmt_var"].set(str(cfg.extras.get("enrich.format", "png")).lower())
-        controls["jq_var"].set(int(cfg.extras.get("enrich.jpeg_quality", 85) or 85))
+        controls["device_var"].set(str(cfg.extras.get("preproc.device", "gpu")))
+        controls["convert_math_var"].set(bool(cfg.extras.get("preproc.convert_math", True)))
+        controls["convert_inline_var"].set(bool(cfg.extras.get("preproc.convert_inline", True)))
+        controls["convert_tables_var"].set(bool(cfg.extras.get("preproc.convert_tables", True)))
+        controls["min_area_var"].set(int(cfg.extras.get("preproc.min_area_px", 150) or 150))
+        controls["margin_var"].set(float(cfg.extras.get("preproc.margin_pts", 1.0) or 1.0))
+        controls["pages_var"].set(str(cfg.extras.get("preproc.pages", "")))
+        controls["dpi_var"].set(int(cfg.extras.get("preproc.dpi", 360) or 360))
 
     def _current_tab_id(self) -> Optional[str]:
         selection = self.notebook.select()
@@ -1207,62 +1248,7 @@ class ConfigNotebook(ttk.Frame):
             "suspend": False,
         }
 
-        # Post-process controls (extras)
-        pp_frame = ttk.LabelFrame(parent, text="Post-procesado")
-        pp_frame.grid(row=2, column=0, sticky="ew", pady=(6, 0))
-        pp_frame.columnconfigure(1, weight=1)
-
-        # Defaults
-        default_suppress = bool(config.extras.get("suppress_math_inside_tables", True))
-        default_threshold = config.extras.get("table_cover_threshold", 0.9)
-        try:
-            default_threshold = float(default_threshold)
-        except Exception:
-            default_threshold = 0.9
-        default_threshold = max(0.0, min(1.0, default_threshold))
-
-        suppress_var = tk.BooleanVar(value=default_suppress)
-        threshold_var = tk.DoubleVar(value=default_threshold)
-
-        def on_suppress_toggle() -> None:
-            cfg = self._config_by_tab.get(tab_widget_id)
-            if cfg is None:
-                return
-            value = bool(suppress_var.get())
-            cfg.extras["suppress_math_inside_tables"] = value
-
-        def on_threshold_change(*_args: object) -> None:
-            cfg = self._config_by_tab.get(tab_widget_id)
-            if cfg is None:
-                return
-            try:
-                raw = float(threshold_var.get())
-            except Exception:
-                return
-            value = max(0.0, min(1.0, raw))
-            # Clamp UI back
-            if value != raw:
-                try:
-                    threshold_var.set(value)
-                except Exception:
-                    pass
-            cfg.extras["table_cover_threshold"] = value
-
-        cb = ttk.Checkbutton(pp_frame, text="Suprimir ecuaciones dentro de tablas", variable=suppress_var, command=on_suppress_toggle)
-        cb.grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(6, 2))
-
-        ttk.Label(pp_frame, text="Umbral cobertura (0–1)").grid(row=1, column=0, sticky="w", padx=(8, 6), pady=(2, 8))
-        spin = tk.Spinbox(pp_frame, from_=0.0, to=1.0, increment=0.05, textvariable=threshold_var, width=6, command=on_threshold_change)
-        spin.grid(row=1, column=1, sticky="w", padx=(0, 6), pady=(2, 8))
-        ttk.Label(pp_frame, text="≥ proporción del área de math cubierto por tabla").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=(2, 8))
-
-        threshold_var.trace_add("write", on_threshold_change)
-
-        self._postprocess_controls[tab_widget_id] = {
-            "frame": pp_frame,
-            "suppress_var": suppress_var,
-            "threshold_var": threshold_var,
-        }
+        # Espacio reservado para futuros avisos relacionados con preprocesado
 
     def _append_console(self, tab_widget_id: str, message: str, *, clear: bool = False) -> None:
         console = self._console_widgets.get(tab_widget_id)
@@ -1449,6 +1435,9 @@ class ConfigNotebook(ttk.Frame):
             f"OEB generado en: {result.oeb_output}",
             f"Primer HTML: {result.spine_first_html}",
         ]
+        summary = self._format_preprocess_message(result.preprocess)
+        if summary:
+            pieces.append(summary)
         if result.skipped_options:
             skipped = ", ".join(sorted(result.skipped_options))
             pieces.append(f"Opciones omitidas (no soportadas por ebook-convert): {skipped}")
@@ -1477,6 +1466,9 @@ class ConfigNotebook(ttk.Frame):
             f"Comando: {self._format_command(result.command)}",
             f"Archivo: {result.target}",
         ]
+        summary = self._format_preprocess_message(result.preprocess)
+        if summary:
+            pieces.append(summary)
         if result.skipped_options:
             skipped = ", ".join(sorted(result.skipped_options))
             pieces.append(f"Opciones omitidas (no soportadas por ebook-convert): {skipped}")
@@ -1488,6 +1480,24 @@ class ConfigNotebook(ttk.Frame):
                 ]
             )
         return "\n\n".join(pieces)
+
+    def _format_preprocess_message(self, preprocess: Any) -> str:
+        if preprocess is None:
+            return ""
+        try:
+            total = int(preprocess.replaced_regions)
+            pages = tuple(preprocess.processed_pages)
+            device = getattr(preprocess, "device", "?")
+            workers = getattr(preprocess, "workers", 1)
+        except Exception:
+            return ""
+        if total <= 0:
+            return f"Preprocesado: sin cambios detectados (dispositivo {device})."
+        pages_text = ", ".join(str(p) for p in pages) if pages else "n/a"
+        return (
+            f"Preprocesado: {total} regiones rasterizadas en {len(pages)} páginas "
+            f"({pages_text}) · dispositivo {device} · lote máximo {workers}."
+        )
 
     def _ask_output_epub(self, config: TabConfiguration) -> Optional[str]:  # pragma: no cover - UI helper
         initialfile = (config.output_epub.name if config.output_epub else f"{config.title or 'salida'}.epub")
@@ -1582,30 +1592,21 @@ class ConfigNotebook(ttk.Frame):
 
         def runner(send: Callable[[str, Any], None], cancel_event: threading.Event) -> PreviewResult:
             if self._preview_runner is None:
+                try:
+                    options = options_from_extras(config.extras)
+                except Exception:
+                    options = None
+                if options and options.should_process():
+                    send("message", "Preprocesando PDF para fórmulas y tablas…")
                 result = run_preview(
                     config,
                     catalog=self.catalog,
                     run=self._make_streaming_run(tab_id, send, cancel_event),
                 )
-                # Enrich OEB with ML detections (best effort)
-                try:
-                    send("message", "Aplicando detección de fórmulas/tabla y añadiendo imágenes…")
-                    enrich_oeb_with_ml(
-                        result,
-                        options=EnrichOptions(
-                            dpi=int(config.extras.get("enrich.dpi", 360) or 360),
-                            device="cpu",
-                            paddleocr_path=None,
-                            suppress_math_inside_tables=bool(config.extras.get("suppress_math_inside_tables", True)),
-                            table_cover_threshold=float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
-                            remove_math_text=bool(config.extras.get("remove_math_text", True)),
-                        ),
-                        send=send,
-                        run=self._make_streaming_run(tab_id, send, cancel_event),
-                    )
-                except Exception as exc:
-                    # Do not fail preview on enrichment issues
-                    send("message", f"[WARN] Enriquecimiento ML omitido: {exc}")
+                if result.preprocess is not None:
+                    summary = self._format_preprocess_message(result.preprocess)
+                    if summary:
+                        send("message", summary)
                 return result
             return self._preview_runner(config, cancel_event)
 
@@ -1689,6 +1690,10 @@ class ConfigNotebook(ttk.Frame):
                 preview = self._preview_state.get(tab_id)
                 if preview is not None and preview.oeb_output.exists():
                     self._append_console(tab_id, "Se detectó OEB de previsualización; empaquetando EPUB…")
+                    if preview.preprocess is not None:
+                        summary = self._format_preprocess_message(preview.preprocess)
+                        if summary:
+                            send("message", summary)
                     return package_epub_from_oeb(
                         config,
                         preview.oeb_output,
@@ -1696,30 +1701,22 @@ class ConfigNotebook(ttk.Frame):
                         catalog=self.catalog,
                         run=self._make_streaming_run(tab_id, send, cancel_event),
                     )
-                # No preview available: run a preview + enrichment, then package
-                send("message", "Generando OEB previo para aplicar detección ML…")
+                # No preview available: run a preview (with preprocesado), then package
+                try:
+                    options = options_from_extras(config.extras)
+                except Exception:
+                    options = None
+                if options and options.should_process():
+                    send("message", "Preprocesando PDF antes de empaquetar…")
                 prev = run_preview(
                     config,
                     catalog=self.catalog,
                     run=self._make_streaming_run(tab_id, send, cancel_event),
                 )
-                try:
-                    send("message", "Aplicando detección de fórmulas/tabla y añadiendo imágenes…")
-                    enrich_oeb_with_ml(
-                        prev,
-                        options=EnrichOptions(
-                            dpi=int(config.extras.get("enrich.dpi", 360) or 360),
-                            device="cpu",
-                            paddleocr_path=None,
-                            suppress_math_inside_tables=bool(config.extras.get("suppress_math_inside_tables", True)),
-                            table_cover_threshold=float(config.extras.get("table_cover_threshold", 0.9) or 0.9),
-                            remove_math_text=bool(config.extras.get("remove_math_text", True)),
-                        ),
-                        send=send,
-                        run=self._make_streaming_run(tab_id, send, cancel_event),
-                    )
-                except Exception as exc:
-                    send("message", f"[WARN] Enriquecimiento ML omitido: {exc}")
+                if prev.preprocess is not None:
+                    summary = self._format_preprocess_message(prev.preprocess)
+                    if summary:
+                        send("message", summary)
                 return package_epub_from_oeb(
                     config,
                     prev.oeb_output,

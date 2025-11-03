@@ -16,6 +16,12 @@ from core.configuration import TabConfiguration
 from core.options.catalog import Catalog, get_catalog
 from core.runner.cli_support import get_supported_flags
 from core.runner.options_cli import build_convert_command
+from core.runner.pdf_preprocessor import (
+    PreprocessError,
+    PreprocessResult,
+    options_from_extras,
+    preprocess_pdf,
+)
 from core.runner.pdf_subset import PdfSubsetError, prepare_pdf_subset
 from core.runner.temp_manager import TemporaryWorkspace
 
@@ -35,6 +41,7 @@ class ConversionResult:
     stdout: str
     stderr: str
     skipped_options: Sequence[str] = ()
+    preprocess: Optional[PreprocessResult] = None
 
 
 class ConversionError(RuntimeError):
@@ -93,6 +100,7 @@ def run_epub(
 
     active_catalog = _ensure_catalog(catalog)
     workspace = workspace_factory()
+    preprocess_result: Optional[PreprocessResult] = None
     try:
         def subset_run(command: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess:
             return run(
@@ -109,6 +117,16 @@ def run_epub(
             qpdf_path=qpdf_path,
             run=subset_run,
         )
+
+        extras = getattr(config, "extras", {}) or {}
+        options = options_from_extras(extras)
+        if options.should_process():
+            preprocess_result = preprocess_pdf(
+                subset_pdf,
+                workspace=workspace.path / "preprocess",
+                options=options,
+            )
+            subset_pdf = preprocess_result.output_pdf
 
         supported_flags = get_supported_flags(ebook_convert_path)
         skipped: List[str] = []
@@ -293,8 +311,17 @@ def run_epub(
             stdout=stdout,
             stderr=stderr,
             skipped_options=tuple(skipped),
+            preprocess=preprocess_result,
         )
     except PdfSubsetError as exc:
+        raise ConversionError(
+            str(exc),
+            command=[],
+            stdout="",
+            stderr="",
+            returncode=None,
+        ) from exc
+    except PreprocessError as exc:
         raise ConversionError(
             str(exc),
             command=[],

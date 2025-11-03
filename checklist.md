@@ -38,13 +38,13 @@ Control de calidad y pruebas
 - [x] Caso borde: detectar y omitir regiones que ya eran imágenes originales.
 
 Integración en la pipeline
-- [ ] Encapsular el preprocesado en un módulo (`pdf_preprocessor.py`) que reciba el PDF original y produzca un PDF modificado temporal.
-- [ ] Actualizar el flujo principal para usar el PDF preprocesado como entrada de Calibre, manteniendo compatibilidad con la GUI.
+- [x] Encapsular el preprocesado en un módulo (`pdf_preprocessor.py`) que reciba el PDF original y produzca un PDF modificado temporal.
+- [x] Actualizar el flujo principal para usar el PDF preprocesado como entrada de Calibre, manteniendo compatibilidad con la GUI.
 - [ ] Añadir toggles/configuración para DPI, márgenes, y opción “saltar regiones que ya son imágenes”.
 - [ ] Registrar métricas del preprocesado (n.º de fórmulas/tablas sustituidas, DPI usado, tiempo por página).
 
 Documentación y soporte operativo
-- [ ] Documentar en README/tool_description la nueva etapa y sus parámetros.
+- [x] Documentar en README/tool_description la nueva etapa y sus parámetros.
 - [ ] Incluir guía de resolución de problemas (p.ej. cómo ajustar DPI o márgenes si Calibre recorta mal).
 - [ ] Actualizar la GUI para mostrar estado del preprocesado y advertencias (regiones omitidas, errores de redacción).
 
